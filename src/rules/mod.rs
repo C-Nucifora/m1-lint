@@ -12,6 +12,7 @@ pub mod l005_logical_operator_preferred;
 pub mod l006_float_eq_comparison;
 pub mod l007_operator_spacing;
 pub mod l008_nesting_too_deep;
+pub mod l009_cyclomatic_complexity;
 
 /// A lint rule.
 ///
