@@ -28,6 +28,9 @@ impl Registry {
         r.register(Box::new(
             crate::rules::l003_missing_final_newline::MissingFinalNewline,
         ));
+        r.register(Box::new(
+            crate::rules::l004_eq_operator_preferred::EqOperatorPreferred,
+        ));
         r
     }
 
