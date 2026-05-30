@@ -15,6 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 m1-core = { path = "../m1-core" }
+toml = "0.8"
 
 [dev-dependencies]
 # none in v1
