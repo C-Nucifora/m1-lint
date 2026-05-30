@@ -51,6 +51,38 @@ impl Rule for LogicalOperatorPreferred {
             }
         }
     }
+
+    fn fix_node(&self, node: &m1_core::Node, source: &str, edits: &mut Vec<crate::fix::Edit>) {
+        if node.kind() == Kind::BinaryExpression {
+            for child in node.children() {
+                let repl = match child.kind() {
+                    Kind::AmpAmp => "and",
+                    Kind::PipePipe => "or",
+                    _ => continue,
+                };
+                edits.push(crate::fix::Edit {
+                    byte_range: child.byte_range(),
+                    replacement: repl.into(),
+                });
+            }
+        }
+        if node.kind() == Kind::UnaryExpression {
+            for child in node.children() {
+                if child.kind() == Kind::Bang {
+                    // `!x` -> `not x`: ensure a separating space so tokens split.
+                    let br = child.byte_range();
+                    let next = source.as_bytes().get(br.end).copied();
+                    let needs_space = !matches!(next, Some(b' ') | Some(b'(') | None);
+                    let replacement = if needs_space { "not " } else { "not" };
+                    // Skip the ambiguous `!!a` case (double negation).
+                    if next == Some(b'!') {
+                        continue;
+                    }
+                    edits.push(crate::fix::Edit { byte_range: br, replacement: replacement.into() });
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -94,5 +126,14 @@ mod tests {
         let source = "x = a and b;\ny = c or d;\nz = not e;\n";
         let result = runner().run_source(source);
         assert!(result.diagnostics.iter().all(|d| d.code != LintCode::L005));
+    }
+
+    #[test]
+    fn fixes_amp_amp() {
+        let mut r = Registry::empty();
+        r.register(Box::new(LogicalOperatorPreferred));
+        let fixer = crate::fix::Fixer::new(&r);
+        let out = fixer.fix_source("x = a && b;\n").unwrap();
+        assert_eq!(out.as_deref(), Some("x = a and b;\n"));
     }
 }

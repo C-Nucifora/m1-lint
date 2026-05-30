@@ -75,6 +75,25 @@ impl Rule for OperatorSpacing {
             }
         }
     }
+
+    fn fix_node(&self, node: &m1_core::Node, source: &str, edits: &mut Vec<crate::fix::Edit>) {
+        if !matches!(node.kind(), Kind::BinaryExpression | Kind::AssignmentStatement) {
+            return;
+        }
+        let bytes = source.as_bytes();
+        for child in node.children() {
+            if !is_checked_operator(child.kind()) {
+                continue;
+            }
+            let br = child.byte_range();
+            if !has_space_before(bytes, br.start) {
+                edits.push(crate::fix::Edit { byte_range: br.start..br.start, replacement: " ".into() });
+            }
+            if !has_space_after(bytes, br.end) {
+                edits.push(crate::fix::Edit { byte_range: br.end..br.end, replacement: " ".into() });
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -122,5 +141,14 @@ mod tests {
         let source = "x=1;\n";
         let result = runner().run_source(source);
         assert!(result.diagnostics.iter().any(|d| d.code == LintCode::L007));
+    }
+
+    #[test]
+    fn fixes_missing_spacing() {
+        let mut r = Registry::empty();
+        r.register(Box::new(OperatorSpacing));
+        let fixer = crate::fix::Fixer::new(&r);
+        let out = fixer.fix_source("x = a+b;\n").unwrap();
+        assert_eq!(out.as_deref(), Some("x = a + b;\n"));
     }
 }

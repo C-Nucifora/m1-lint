@@ -44,6 +44,20 @@ impl Rule for TrailingWhitespace {
             byte_offset += line.len() + 1;
         }
     }
+
+    fn fix_file(&self, _source: &str, lines: &[&str], edits: &mut Vec<crate::fix::Edit>) {
+        let mut byte_offset = 0usize;
+        for line in lines {
+            let trimmed = line.trim_end().len();
+            if trimmed < line.len() {
+                edits.push(crate::fix::Edit {
+                    byte_range: (byte_offset + trimmed)..(byte_offset + line.len()),
+                    replacement: String::new(),
+                });
+            }
+            byte_offset += line.len() + 1;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -76,5 +90,14 @@ mod tests {
     fn detects_trailing_tab() {
         let result = runner().run_source("x = 1;\t\n");
         assert_eq!(result.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn fixes_trailing_whitespace() {
+        let mut r = Registry::empty();
+        r.register(Box::new(TrailingWhitespace));
+        let fixer = crate::fix::Fixer::new(&r);
+        let out = fixer.fix_source("x = 1;  \n").unwrap();
+        assert_eq!(out.as_deref(), Some("x = 1;\n"));
     }
 }

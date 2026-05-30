@@ -37,6 +37,23 @@ impl Rule for EqOperatorPreferred {
             ));
         }
     }
+
+    fn fix_node(&self, node: &m1_core::Node, _source: &str, edits: &mut Vec<crate::fix::Edit>) {
+        if node.kind() != Kind::BinaryExpression {
+            return;
+        }
+        for child in node.children() {
+            let repl = match child.kind() {
+                Kind::EqEq => "eq",
+                Kind::BangEq => "neq",
+                _ => continue,
+            };
+            edits.push(crate::fix::Edit {
+                byte_range: child.byte_range(),
+                replacement: repl.into(),
+            });
+        }
+    }
 }
 
 #[cfg(test)]
@@ -82,5 +99,14 @@ mod tests {
         let source = "x = a + b;\ny = c eq d;\n";
         let result = runner().run_source(source);
         assert!(result.diagnostics.iter().all(|d| d.code != LintCode::L004));
+    }
+
+    #[test]
+    fn fixes_eq_eq() {
+        let mut r = Registry::empty();
+        r.register(Box::new(EqOperatorPreferred));
+        let fixer = crate::fix::Fixer::new(&r);
+        let out = fixer.fix_source("x = a == b;\n").unwrap();
+        assert_eq!(out.as_deref(), Some("x = a eq b;\n"));
     }
 }
