@@ -13,6 +13,8 @@ pub mod l006_float_eq_comparison;
 pub mod l007_operator_spacing;
 pub mod l008_nesting_too_deep;
 pub mod l009_cyclomatic_complexity;
+pub mod l010_tab_indentation;
+pub mod l011_comment_style;
 
 /// A lint rule.
 ///
