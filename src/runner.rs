@@ -61,6 +61,25 @@ impl Runner {
         Ok(self.run_source(&source))
     }
 
+    /// Apply safe autofixes to a source string. See [`crate::fix::Fixer`].
+    pub fn fix_source(&self, source: &str) -> Result<Option<String>, crate::fix::FixError> {
+        crate::fix::Fixer::new(&self.registry).fix_source(source)
+    }
+
+    /// Apply safe autofixes to a file, writing it back when changed.
+    /// Returns `Ok(true)` if the file was modified.
+    pub fn fix_file(&self, path: &Path) -> std::io::Result<bool> {
+        let source = std::fs::read_to_string(path)?;
+        match self.fix_source(&source) {
+            Ok(Some(fixed)) => {
+                std::fs::write(path, fixed)?;
+                Ok(true)
+            }
+            Ok(None) => Ok(false),
+            Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
+        }
+    }
+
     fn walk(&self, node: &Node, source: &str, diags: &mut Vec<LintDiagnostic>) {
         for rule in self.registry.rules() {
             rule.check_node(node, source, diags);
@@ -88,5 +107,18 @@ mod tests {
         let runner = Runner::new(Registry::empty());
         let result = runner.run_source("");
         assert!(result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn fix_source_rewrites_eq_eq() {
+        let runner = Runner::new(crate::registry::Registry::default_v2());
+        let out = runner.fix_source("x = a == b;\n").unwrap();
+        assert_eq!(out.as_deref(), Some("x = a eq b;\n"));
+    }
+
+    #[test]
+    fn fix_source_none_when_clean() {
+        let runner = Runner::new(crate::registry::Registry::default_v2());
+        assert_eq!(runner.fix_source("x = a eq b;\n").unwrap(), None);
     }
 }
