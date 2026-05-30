@@ -37,6 +37,7 @@ impl Registry {
         r.register(Box::new(
             crate::rules::l006_float_eq_comparison::FloatEqComparison,
         ));
+        r.register(Box::new(crate::rules::l007_operator_spacing::OperatorSpacing));
         r
     }
 
