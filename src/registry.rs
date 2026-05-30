@@ -22,6 +22,12 @@ impl Registry {
     pub fn default_v1() -> Self {
         let mut r = Self::empty();
         r.register(Box::new(crate::rules::l001_line_too_long::LineTooLong));
+        r.register(Box::new(
+            crate::rules::l002_trailing_whitespace::TrailingWhitespace,
+        ));
+        r.register(Box::new(
+            crate::rules::l003_missing_final_newline::MissingFinalNewline,
+        ));
         r
     }
 

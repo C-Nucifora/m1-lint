@@ -5,6 +5,8 @@
 use crate::diagnostic::LintDiagnostic;
 
 pub mod l001_line_too_long;
+pub mod l002_trailing_whitespace;
+pub mod l003_missing_final_newline;
 
 /// A lint rule.
 ///
