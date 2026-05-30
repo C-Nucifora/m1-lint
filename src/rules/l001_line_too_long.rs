@@ -1,16 +1,22 @@
 //! L001 — line-too-long
 //!
-//! A source line, after stripping trailing whitespace, must not exceed 88
-//! characters.
+//! A source line, after stripping trailing whitespace, must not exceed
+//! `max_len` characters (default 88).
 
 use crate::diagnostic::{LintCode, LintDiagnostic};
 use crate::rules::Rule;
 use m1_core::{Range, Severity};
 
-const MAX_LEN: usize = 88;
+/// L001 — flags lines longer than `max_len` (after rstrip).
+pub struct LineTooLong {
+    pub max_len: usize,
+}
 
-/// L001 — flags lines longer than 88 characters after rstrip.
-pub struct LineTooLong;
+impl Default for LineTooLong {
+    fn default() -> Self {
+        Self { max_len: 88 }
+    }
+}
 
 impl Rule for LineTooLong {
     fn code(&self) -> LintCode {
@@ -26,17 +32,17 @@ impl Rule for LineTooLong {
         for (line_idx, line) in lines.iter().enumerate() {
             let trimmed_len = line.trim_end().len();
 
-            if trimmed_len > MAX_LEN {
+            if trimmed_len > self.max_len {
                 let start = m1_core::Position {
                     line: line_idx as u32,
-                    column: MAX_LEN as u32,
+                    column: self.max_len as u32,
                 };
                 let end = m1_core::Position {
                     line: line_idx as u32,
                     column: trimmed_len as u32,
                 };
                 let range = Range { start, end };
-                let byte_start = byte_offset + MAX_LEN;
+                let byte_start = byte_offset + self.max_len;
                 let byte_end = byte_offset + trimmed_len;
 
                 diags.push(LintDiagnostic::new(
@@ -44,7 +50,7 @@ impl Rule for LineTooLong {
                     range,
                     byte_start..byte_end,
                     Severity::Warning,
-                    format!("line is {} characters (max {})", trimmed_len, MAX_LEN),
+                    format!("line is {} characters (max {})", trimmed_len, self.max_len),
                 ));
             }
 
@@ -62,7 +68,7 @@ mod tests {
 
     fn runner() -> Runner {
         let mut r = Registry::empty();
-        r.register(Box::new(LineTooLong));
+        r.register(Box::new(LineTooLong::default()));
         Runner::new(r)
     }
 
@@ -111,5 +117,14 @@ mod tests {
         assert_eq!(result.diagnostics.len(), 2);
         assert_eq!(result.diagnostics[0].inner.range.start.line, 0);
         assert_eq!(result.diagnostics[1].inner.range.start.line, 1);
+    }
+
+    #[test]
+    fn respects_custom_max_len() {
+        let mut r = Registry::empty();
+        r.register(Box::new(LineTooLong { max_len: 10 }));
+        let result = Runner::new(r).run_source("xxxxxxxxxxxx = 1;\n"); // 16 chars
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(result.diagnostics[0].inner.message.contains("max 10"));
     }
 }
