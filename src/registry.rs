@@ -21,7 +21,7 @@ impl Registry {
     /// Returns the default registry for m1-lint v1.
     pub fn default_v1() -> Self {
         let mut r = Self::empty();
-        r.register(Box::new(crate::rules::l001_line_too_long::LineTooLong));
+        r.register(Box::new(crate::rules::l001_line_too_long::LineTooLong::default()));
         r.register(Box::new(
             crate::rules::l002_trailing_whitespace::TrailingWhitespace,
         ));
@@ -41,10 +41,10 @@ impl Registry {
             crate::rules::l007_operator_spacing::OperatorSpacing,
         ));
         r.register(Box::new(
-            crate::rules::l008_nesting_too_deep::NestingTooDeep,
+            crate::rules::l008_nesting_too_deep::NestingTooDeep::default(),
         ));
         r.register(Box::new(
-            crate::rules::l009_cyclomatic_complexity::CyclomaticComplexity,
+            crate::rules::l009_cyclomatic_complexity::CyclomaticComplexity::default(),
         ));
         r
     }
