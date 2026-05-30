@@ -10,7 +10,7 @@ use m1_lint::runner::Runner;
 use std::path::Path;
 
 fn runner() -> Runner {
-    Runner::new(Registry::default_v1())
+    Runner::new(Registry::default_v2())
 }
 
 fn run_fixture(stem: &str) {
@@ -82,4 +82,12 @@ fn fixture_l007_op_spacing() {
 #[test]
 fn fixture_l008_nesting() {
     run_fixture("l008_nesting");
+}
+#[test]
+fn fixture_l010_tabs() {
+    run_fixture("l010_tabs");
+}
+#[test]
+fn fixture_l011_comment() {
+    run_fixture("l011_comment");
 }

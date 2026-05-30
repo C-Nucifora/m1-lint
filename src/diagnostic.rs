@@ -4,7 +4,7 @@ use m1_core::{Diagnostic, Range, Severity};
 use std::fmt;
 
 /// A lint rule code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum LintCode {
     /// L001 — line-too-long
     L001,
@@ -24,6 +24,10 @@ pub enum LintCode {
     L008,
     /// L009 — cyclomatic-complexity
     L009,
+    /// L010 — tab-for-indentation
+    L010,
+    /// L011 — comment-style
+    L011,
 }
 
 impl fmt::Display for LintCode {
@@ -38,7 +42,55 @@ impl fmt::Display for LintCode {
             LintCode::L007 => write!(f, "L007"),
             LintCode::L008 => write!(f, "L008"),
             LintCode::L009 => write!(f, "L009"),
+            LintCode::L010 => write!(f, "L010"),
+            LintCode::L011 => write!(f, "L011"),
         }
+    }
+}
+
+impl LintCode {
+    /// Every lint code, in numeric order.
+    pub fn all_codes() -> &'static [LintCode] {
+        use LintCode::*;
+        &[L001, L002, L003, L004, L005, L006, L007, L008, L009, L010, L011]
+    }
+
+    /// Parse a code string such as `"L004"`.
+    pub fn from_code_str(s: &str) -> Option<LintCode> {
+        LintCode::all_codes()
+            .iter()
+            .copied()
+            .find(|c| c.to_string() == s)
+    }
+
+    /// Stable human-readable rule name.
+    pub fn name(&self) -> &'static str {
+        match self {
+            LintCode::L001 => "line-too-long",
+            LintCode::L002 => "trailing-whitespace",
+            LintCode::L003 => "missing-final-newline",
+            LintCode::L004 => "eq-operator-preferred",
+            LintCode::L005 => "logical-operator-preferred",
+            LintCode::L006 => "float-eq-comparison",
+            LintCode::L007 => "operator-spacing",
+            LintCode::L008 => "nesting-too-deep",
+            LintCode::L009 => "cyclomatic-complexity",
+            LintCode::L010 => "tab-for-indentation",
+            LintCode::L011 => "comment-style",
+        }
+    }
+
+    /// Whether `m1-lint --fix` can mechanically fix this rule's diagnostics.
+    pub fn fixable(&self) -> bool {
+        matches!(
+            self,
+            LintCode::L002
+                | LintCode::L003
+                | LintCode::L004
+                | LintCode::L005
+                | LintCode::L007
+                | LintCode::L011
+        )
     }
 }
 
@@ -85,5 +137,24 @@ mod tests {
     fn display_codes() {
         assert_eq!(LintCode::L001.to_string(), "L001");
         assert_eq!(LintCode::L009.to_string(), "L009");
+    }
+
+    #[test]
+    fn round_trips_code_str() {
+        assert_eq!(LintCode::from_code_str("L004"), Some(LintCode::L004));
+        assert_eq!(LintCode::from_code_str("L011"), Some(LintCode::L011));
+        assert_eq!(LintCode::from_code_str("nope"), None);
+    }
+
+    #[test]
+    fn all_codes_has_eleven() {
+        assert_eq!(LintCode::all_codes().len(), 11);
+    }
+
+    #[test]
+    fn fixable_flags() {
+        assert!(LintCode::L004.fixable());
+        assert!(!LintCode::L001.fixable());
+        assert!(!LintCode::L006.fixable());
     }
 }

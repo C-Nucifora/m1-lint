@@ -13,6 +13,8 @@ pub mod l006_float_eq_comparison;
 pub mod l007_operator_spacing;
 pub mod l008_nesting_too_deep;
 pub mod l009_cyclomatic_complexity;
+pub mod l010_tab_indentation;
+pub mod l011_comment_style;
 
 /// A lint rule.
 ///
@@ -37,5 +39,15 @@ pub trait Rule: Send + Sync {
     /// Called for every node in the CST (depth-first, pre-order).
     fn check_node(&self, node: &m1_core::Node, source: &str, diags: &mut Vec<LintDiagnostic>) {
         let _ = (node, source, diags);
+    }
+
+    /// Emit autofix edits for this node. Default: no fix.
+    fn fix_node(&self, node: &m1_core::Node, source: &str, edits: &mut Vec<crate::fix::Edit>) {
+        let _ = (node, source, edits);
+    }
+
+    /// Emit autofix edits at file scope. Default: no fix.
+    fn fix_file(&self, source: &str, lines: &[&str], edits: &mut Vec<crate::fix::Edit>) {
+        let _ = (source, lines, edits);
     }
 }

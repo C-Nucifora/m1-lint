@@ -15,8 +15,6 @@ use crate::diagnostic::{LintCode, LintDiagnostic};
 use crate::rules::Rule;
 use m1_core::{Kind, Node, Severity};
 
-const MAX_COMPLEXITY: u32 = 10;
-
 fn is_scope_node(kind: Kind) -> bool {
     matches!(kind, Kind::WhenStatement | Kind::SourceFile)
 }
@@ -55,8 +53,16 @@ fn count_children(node: &Node, count: &mut u32) {
     }
 }
 
-/// L009 — flags scopes whose cyclomatic complexity exceeds ten.
-pub struct CyclomaticComplexity;
+/// L009 — flags scopes whose cyclomatic complexity exceeds `max_complexity`.
+pub struct CyclomaticComplexity {
+    pub max_complexity: u32,
+}
+
+impl Default for CyclomaticComplexity {
+    fn default() -> Self {
+        Self { max_complexity: 10 }
+    }
+}
 
 impl Rule for CyclomaticComplexity {
     fn code(&self) -> LintCode {
@@ -71,7 +77,7 @@ impl Rule for CyclomaticComplexity {
             return;
         }
         let complexity = count_complexity(node);
-        if complexity > MAX_COMPLEXITY {
+        if complexity > self.max_complexity {
             diags.push(LintDiagnostic::new(
                 LintCode::L009,
                 node.range(),
@@ -79,7 +85,7 @@ impl Rule for CyclomaticComplexity {
                 Severity::Warning,
                 format!(
                     "cyclomatic complexity {} exceeds maximum of {}",
-                    complexity, MAX_COMPLEXITY
+                    complexity, self.max_complexity
                 ),
             ));
         }
@@ -94,7 +100,7 @@ mod tests {
 
     fn runner() -> Runner {
         let mut r = Registry::empty();
-        r.register(Box::new(CyclomaticComplexity));
+        r.register(Box::new(CyclomaticComplexity::default()));
         Runner::new(r)
     }
 

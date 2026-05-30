@@ -9,8 +9,6 @@ use crate::diagnostic::{LintCode, LintDiagnostic};
 use crate::rules::Rule;
 use m1_core::{Kind, Node, Severity};
 
-const MAX_DEPTH: usize = 4;
-
 fn is_control_node(kind: Kind) -> bool {
     matches!(kind, Kind::IfStatement | Kind::WhenStatement)
 }
@@ -27,8 +25,16 @@ fn nesting_depth(node: &Node) -> usize {
     depth
 }
 
-/// L008 — flags control structures nested deeper than four levels.
-pub struct NestingTooDeep;
+/// L008 — flags control structures nested deeper than `max_depth` levels.
+pub struct NestingTooDeep {
+    pub max_depth: usize,
+}
+
+impl Default for NestingTooDeep {
+    fn default() -> Self {
+        Self { max_depth: 4 }
+    }
+}
 
 impl Rule for NestingTooDeep {
     fn code(&self) -> LintCode {
@@ -43,13 +49,13 @@ impl Rule for NestingTooDeep {
             return;
         }
         let depth = nesting_depth(node) + 1; // +1 for this node itself
-        if depth > MAX_DEPTH {
+        if depth > self.max_depth {
             diags.push(LintDiagnostic::new(
                 LintCode::L008,
                 node.range(),
                 node.byte_range(),
                 Severity::Warning,
-                format!("nesting depth {} exceeds maximum of {}", depth, MAX_DEPTH),
+                format!("nesting depth {} exceeds maximum of {}", depth, self.max_depth),
             ));
         }
     }
@@ -63,7 +69,7 @@ mod tests {
 
     fn runner() -> Runner {
         let mut r = Registry::empty();
-        r.register(Box::new(NestingTooDeep));
+        r.register(Box::new(NestingTooDeep::default()));
         Runner::new(r)
     }
 
