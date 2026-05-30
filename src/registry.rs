@@ -20,9 +20,8 @@ impl Registry {
 
     /// Returns the default registry for m1-lint v1.
     pub fn default_v1() -> Self {
-        #[allow(unused_mut)]
         let mut r = Self::empty();
-        // Rules are added here as they are implemented.
+        r.register(Box::new(crate::rules::l001_line_too_long::LineTooLong));
         r
     }
 

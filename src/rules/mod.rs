@@ -4,6 +4,8 @@
 
 use crate::diagnostic::LintDiagnostic;
 
+pub mod l001_line_too_long;
+
 /// A lint rule.
 ///
 /// Rules implement one or both of [`check_file`][Rule::check_file] and
