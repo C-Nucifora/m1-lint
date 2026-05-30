@@ -31,6 +31,9 @@ impl Registry {
         r.register(Box::new(
             crate::rules::l004_eq_operator_preferred::EqOperatorPreferred,
         ));
+        r.register(Box::new(
+            crate::rules::l005_logical_operator_preferred::LogicalOperatorPreferred,
+        ));
         r
     }
 
