@@ -8,6 +8,7 @@ pub mod l001_line_too_long;
 pub mod l002_trailing_whitespace;
 pub mod l003_missing_final_newline;
 pub mod l004_eq_operator_preferred;
+pub mod l005_logical_operator_preferred;
 
 /// A lint rule.
 ///
