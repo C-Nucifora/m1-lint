@@ -5,6 +5,16 @@ use std::process;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("m1-lint {}", env!("CARGO_PKG_VERSION"));
+        process::exit(0);
+    }
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!("usage: m1-lint [--version] [--help] <file>...");
+        println!();
+        println!("Lint .m1scr files for style and correctness.");
+        process::exit(0);
+    }
     if args.len() < 2 {
         eprintln!("usage: m1-lint <file>...");
         process::exit(2);
