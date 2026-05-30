@@ -1,11 +1,44 @@
 //! Rule registry — collects all active rules.
 
-/// Holds all registered lint rules. (Stub; implemented in task 2.)
-pub struct Registry;
+use crate::rules::Rule;
+
+/// Holds all registered lint rules.
+pub struct Registry {
+    pub(crate) rules: Vec<Box<dyn Rule>>,
+}
 
 impl Registry {
-    /// Returns the default registry for m1-lint v1. (Stub.)
+    /// Create an empty registry.
+    pub fn empty() -> Self {
+        Self { rules: Vec::new() }
+    }
+
+    /// Register a rule.
+    pub fn register(&mut self, rule: Box<dyn Rule>) {
+        self.rules.push(rule);
+    }
+
+    /// Returns the default registry for m1-lint v1.
     pub fn default_v1() -> Self {
-        Self
+        #[allow(unused_mut)]
+        let mut r = Self::empty();
+        // Rules are added here as they are implemented.
+        r
+    }
+
+    /// All registered rules.
+    pub fn rules(&self) -> &[Box<dyn Rule>] {
+        &self.rules
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_registry_has_no_rules() {
+        let r = Registry::empty();
+        assert_eq!(r.rules().len(), 0);
     }
 }

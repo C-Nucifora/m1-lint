@@ -1,3 +1,31 @@
 //! Lint rules.
+//!
+//! Each rule is a zero-sized struct implementing [`Rule`].
 
-// TODO: implemented in task 2.
+use crate::diagnostic::LintDiagnostic;
+
+/// A lint rule.
+///
+/// Rules implement one or both of [`check_file`][Rule::check_file] and
+/// [`check_node`][Rule::check_node]. The default implementations are no-ops so
+/// each rule only needs to override what it uses.
+pub trait Rule: Send + Sync {
+    /// The machine-readable code for this rule, e.g. `LintCode::L001`.
+    fn code(&self) -> crate::diagnostic::LintCode;
+
+    /// A short human-readable name, e.g. `"line-too-long"`.
+    fn name(&self) -> &'static str;
+
+    /// Called once per file before the CST walk.
+    ///
+    /// `source` is the raw file contents. `lines` is the source split on `\n`;
+    /// each element has the trailing newline stripped.
+    fn check_file(&self, source: &str, lines: &[&str], diags: &mut Vec<LintDiagnostic>) {
+        let _ = (source, lines, diags);
+    }
+
+    /// Called for every node in the CST (depth-first, pre-order).
+    fn check_node(&self, node: &m1_core::Node, source: &str, diags: &mut Vec<LintDiagnostic>) {
+        let _ = (node, source, diags);
+    }
+}
