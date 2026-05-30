@@ -39,6 +39,13 @@ impl Rule for MissingFinalNewline {
             "file does not end with a newline".to_string(),
         ));
     }
+
+    fn fix_file(&self, source: &str, _lines: &[&str], edits: &mut Vec<crate::fix::Edit>) {
+        if !source.is_empty() && !source.ends_with('\n') {
+            let len = source.len();
+            edits.push(crate::fix::Edit { byte_range: len..len, replacement: "\n".into() });
+        }
+    }
 }
 
 #[cfg(test)]
@@ -70,5 +77,14 @@ mod tests {
     fn no_diagnostic_on_empty_file() {
         let result = runner().run_source("");
         assert!(result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn fixes_missing_newline() {
+        let mut r = Registry::empty();
+        r.register(Box::new(MissingFinalNewline));
+        let fixer = crate::fix::Fixer::new(&r);
+        let out = fixer.fix_source("x = 1;").unwrap();
+        assert_eq!(out.as_deref(), Some("x = 1;\n"));
     }
 }
