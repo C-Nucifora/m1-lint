@@ -34,6 +34,9 @@ impl Registry {
         r.register(Box::new(
             crate::rules::l005_logical_operator_preferred::LogicalOperatorPreferred,
         ));
+        r.register(Box::new(
+            crate::rules::l006_float_eq_comparison::FloatEqComparison,
+        ));
         r
     }
 
