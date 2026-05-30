@@ -1,7 +1,7 @@
 # m1-lint v1 — Design Specification
 
 **Date:** 2026-05-30
-**Status:** Draft
+**Status:** Approved (open questions resolved 2026-05-30)
 **Scope:** v1 — CST-only lint rules, CLI + library crate
 
 ---
@@ -315,9 +315,8 @@ A rule requires one or more of:
 **Source:** `check_complexity.py`.
 **Notes:**
 - Complexity = 1 + number of decision points: each `if`, `elseif`, `when`, `for`, `while`, `and`/`&&`, `or`/`||` within the function/when body.
-- Only emit this diagnostic at the function/when declaration node, not at each branch.
-- Report the function/when node's range (first line of declaration).
-- If the language has no explicit function declarations (scripts are top-level), compute complexity over the top-level `source_file` node. Clarify with owner (see Open Questions).
+- Only emit this diagnostic at the scoping node, not at each branch.
+- **Resolved (see §9):** the M1 `.m1scr` grammar has **no function-declaration nodes** — scripts are top-level statements plus `when`/`is` and `expand` blocks. Compute complexity per `WhenStatement` and also once over the top-level `source_file` (statements outside any `when`). Report at the `when` node's range (or line 1 for the file-level scope).
 
 ---
 
@@ -426,15 +425,38 @@ The following are explicitly deferred from v1:
 
 ---
 
-## 9. Open Questions for the Owner
+## 9. Resolved Decisions
 
-1. **Function declaration nodes in the CST:** Does the M1 grammar define explicit function/procedure declaration nodes (analogous to `function_definition` in other grammars)? If so, what is the `Kind` name? L009 (cyclomatic complexity) needs to know the scoping node to count branches per function. If the language has no explicit function declarations and all logic lives at top level inside `when` blocks, complexity should be computed per `WhenStatement`. Please confirm.
+All four open questions were resolved on 2026-05-30 (answers 1–2 from the
+`tree-sitter-m1` grammar itself; 3–4 by the owner). Implement accordingly.
 
-2. **`eq` / `neq` / `and` / `or` / `not` as built-in call expressions vs keywords:** The task description says the project *prefers* `eq/neq/and/or/not` over `==/!=/&&/||/!`. Are `eq`, `neq`, `and`, `or`, `not` parsed as `Identifier` nodes (i.e. function calls in the CST) or as distinct keyword `Kind` variants? This determines whether L004/L005 must check for their presence (for the "correct usage" test) or only flag their absence. Please confirm the `Kind` values for these tokens.
+1. **Function declaration nodes — RESOLVED: none exist.** The M1 `.m1scr`
+   grammar has no function/procedure declaration node. Source files are a flat
+   sequence of statements plus `when`/`is` and `expand` blocks. L009 therefore
+   computes cyclomatic complexity per `WhenStatement`, and once over the
+   top-level `source_file` for statements outside any `when`. (There is no
+   `ForStatement`/`WhileStatement` in the grammar either; the decision points
+   for L008/L009 are `IfStatement`, `else if` clauses, `WhenStatement`/`is_clause`,
+   `ExpandStatement`, and `and`/`or` operators.)
 
-3. **Operator spacing for assignment (`=`) vs equality (`eq`/`==`):** CONTRIBUTING says "use spaces around operators". Does this apply to the channel-assignment operator `=` as well as arithmetic operators? Assignment spacing is almost always correct in real code but the rule should be explicit. Also, does spacing apply to `:=` (if that token exists)?
+2. **`eq`/`neq`/`and`/`or`/`not` — RESOLVED: keyword operator tokens, not calls.**
+   In the grammar these are operator tokens inside `binary_expression`
+   (`eq`→`Kind::Eq`, `neq`→`Kind::Neq`, `and`→`Kind::And`, `or`→`Kind::Or`) and
+   `unary_expression` (`not`→`Kind::Not`). They are NOT `Identifier`/call nodes.
+   The discouraged symbolic forms are `==`→`Kind::EqEq`, `!=`→`Kind::BangEq`,
+   `&&`→`Kind::AmpAmp`, `||`→`Kind::PipePipe`, `!`→`Kind::Bang`. So L004/L005
+   simply flag the symbolic-form tokens; there is no "check for presence of the
+   word form" requirement.
 
-4. **Should L006 (float-eq) be an Error or a Warning?** The CONTRIBUTING rule says "never compare floats with `==`", suggesting it is a hard violation. However, since it is a heuristic (literal floats only), a false negative rate exists. Treating it as Error may be aggressive. Owner should confirm severity preference before implementation.
+3. **Operator spacing on assignment — RESOLVED: yes, include `=`.** L007 enforces
+   spacing around the assignment `=` in addition to `+ - * / % < > <= >=`. (There
+   is no `:=` token in the grammar; compound assignments `+= -= *= /=` exist and
+   should also be spaced.)
+
+4. **L006 float-eq severity — RESOLVED: Error.** Treated as a hard violation
+   (non-zero exit), per CONTRIBUTING's "never compare floats with `==`". The
+   heuristic only flags literal-float operands, so false positives are avoided;
+   accepted false negatives (float *variables*) await the symbol/type model.
 
 ---
 
