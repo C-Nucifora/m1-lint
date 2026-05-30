@@ -40,4 +40,14 @@ pub trait Rule: Send + Sync {
     fn check_node(&self, node: &m1_core::Node, source: &str, diags: &mut Vec<LintDiagnostic>) {
         let _ = (node, source, diags);
     }
+
+    /// Emit autofix edits for this node. Default: no fix.
+    fn fix_node(&self, node: &m1_core::Node, source: &str, edits: &mut Vec<crate::fix::Edit>) {
+        let _ = (node, source, edits);
+    }
+
+    /// Emit autofix edits at file scope. Default: no fix.
+    fn fix_file(&self, source: &str, lines: &[&str], edits: &mut Vec<crate::fix::Edit>) {
+        let _ = (source, lines, edits);
+    }
 }
