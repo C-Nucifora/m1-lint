@@ -14,7 +14,7 @@ name = "m1_lint"
 path = "src/lib.rs"
 
 [dependencies]
-m1-core = { path = "vendor/m1-core" }
+m1-core = { git = "https://github.com/C-Nucifora/m1-core.git", branch = "main" }
 toml = "0.8"
 
 [dev-dependencies]
