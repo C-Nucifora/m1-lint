@@ -3,7 +3,7 @@ name = "m1-lint"
 version = "0.2.0"
 edition = "2024"
 description = "Linter for the MoTeC M1 script language"
-license = "MIT"
+license = "GPL-3.0-or-later"
 
 [[bin]]
 name = "m1-lint"
