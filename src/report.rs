@@ -121,7 +121,12 @@ fn range_json(out: &mut String, range: &m1_core::Range, byte: &std::ops::Range<u
     let _ = write!(
         out,
         ",\"range\":{{\"start\":{{\"line\":{},\"column\":{}}},\"end\":{{\"line\":{},\"column\":{}}}}},\"byte_range\":{{\"start\":{},\"end\":{}}}",
-        range.start.line, range.start.column, range.end.line, range.end.column, byte.start, byte.end
+        range.start.line,
+        range.start.column,
+        range.end.line,
+        range.end.column,
+        byte.start,
+        byte.end
     );
 }
 
