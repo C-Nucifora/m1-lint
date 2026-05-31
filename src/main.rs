@@ -84,10 +84,8 @@ fn main() {
 
         let runner = Runner::new(Registry::from_config(&cfg));
 
-        if do_fix {
-            if let Err(e) = runner.fix_file(path) {
-                eprintln!("warning: could not fix {}: {}", path.display(), e);
-            }
+        if do_fix && let Err(e) = runner.fix_file(path) {
+            eprintln!("warning: could not fix {}: {}", path.display(), e);
         }
 
         match runner.run_file(path) {
