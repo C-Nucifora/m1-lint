@@ -15,7 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 m1-core = { git = "https://github.com/C-Nucifora/m1-core.git", branch = "main" }
-toml = "0.8"
+toml = "1.1"
 
 [dev-dependencies]
 # none in v1
