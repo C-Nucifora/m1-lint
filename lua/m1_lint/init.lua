@@ -40,11 +40,30 @@ function M.setup(opts)
     ignore_exitcode = true, -- exit 1 means lint findings, not an invocation error
     parser = function(output, _)
       local diags = {}
+      local errors = {}
       for _, line in ipairs(vim.split(output, "\n", { plain = true })) do
         local d = parse_line(line)
         if d then
           diags[#diags + 1] = d
+        elseif line:match("^error: ") or line:match("^warning: could not ") then
+          -- m1-lint writes invocation failures (unreadable file, bad args,
+          -- I/O errors) to stderr as `error:` / `warning: could not …`. These
+          -- don't match the diagnostic pattern, so without this they'd be
+          -- dropped and the user would see zero diagnostics and assume the
+          -- file is clean. Surface them instead (#12). nvim-lint's parser
+          -- callback isn't handed the process exit code, so detecting these
+          -- stderr lines is the reliable signal that the linter itself failed.
+          errors[#errors + 1] = line
         end
+      end
+      if #errors > 0 then
+        -- Defer out of the parser callback; notify isn't safe mid-parse.
+        vim.schedule(function()
+          vim.notify(
+            "m1-lint failed:\n" .. table.concat(errors, "\n"),
+            vim.log.levels.ERROR
+          )
+        end)
       end
       return diags
     end,
