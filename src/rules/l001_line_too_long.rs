@@ -30,27 +30,37 @@ impl Rule for LineTooLong {
         let mut byte_offset = 0usize;
 
         for (line_idx, line) in lines.iter().enumerate() {
-            let trimmed_len = line.trim_end().len();
+            let trimmed = line.trim_end();
+            // The limit is a *character* count, so measure characters — not
+            // bytes — for the length check, the columns, and the message (#15).
+            let char_len = trimmed.chars().count();
 
-            if trimmed_len > self.max_len {
+            if char_len > self.max_len {
                 let start = m1_core::Position {
                     line: line_idx as u32,
                     column: self.max_len as u32,
                 };
                 let end = m1_core::Position {
                     line: line_idx as u32,
-                    column: trimmed_len as u32,
+                    column: char_len as u32,
                 };
                 let range = Range { start, end };
-                let byte_start = byte_offset + self.max_len;
-                let byte_end = byte_offset + trimmed_len;
+                // Byte offset of the (max_len)th character within the line —
+                // adding `max_len` directly would drift on multi-byte UTF-8.
+                let over_byte = trimmed
+                    .char_indices()
+                    .nth(self.max_len)
+                    .map(|(i, _)| i)
+                    .unwrap_or(trimmed.len());
+                let byte_start = byte_offset + over_byte;
+                let byte_end = byte_offset + trimmed.len();
 
                 diags.push(LintDiagnostic::new(
                     LintCode::L001,
                     range,
                     byte_start..byte_end,
                     Severity::Warning,
-                    format!("line is {} characters (max {})", trimmed_len, self.max_len),
+                    format!("line is {char_len} characters (max {})", self.max_len),
                 ));
             }
 
@@ -117,6 +127,27 @@ mod tests {
         assert_eq!(result.diagnostics.len(), 2);
         assert_eq!(result.diagnostics[0].inner.range.start.line, 0);
         assert_eq!(result.diagnostics[1].inner.range.start.line, 1);
+    }
+
+    #[test]
+    fn multibyte_chars_counted_and_byte_offset_correct() {
+        // 90 'é' (each 1 char, 2 bytes). char length 90 > 88, so it's flagged.
+        let line = "é".repeat(90);
+        let source = format!("{line}\n");
+        let result = runner().run_source(&source);
+        assert_eq!(result.diagnostics.len(), 1);
+        let d = &result.diagnostics[0];
+        // Message and columns are in characters, not bytes.
+        assert!(
+            d.inner.message.contains("90 characters"),
+            "expected char count, got: {}",
+            d.inner.message
+        );
+        assert_eq!(d.inner.range.start.column, 88);
+        assert_eq!(d.inner.range.end.column, 90);
+        // Byte offset points at the 89th char boundary (88 * 2), not byte 88.
+        assert_eq!(d.inner.byte_range.start, 88 * 2);
+        assert_eq!(d.inner.byte_range.end, 90 * 2);
     }
 
     #[test]
