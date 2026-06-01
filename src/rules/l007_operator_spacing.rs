@@ -157,7 +157,12 @@ mod tests {
         // A unary negation lives inside a UnaryExpression, so its `-` is not a
         // direct child of a binary/assignment node and must never be flagged for
         // a "missing space before" (it has no left operand). Regression for #16.
-        for src in ["x = -1.0;\n", "z = -x;\n", "y = a + -b;\n", "w = (-a) * b;\n"] {
+        for src in [
+            "x = -1.0;\n",
+            "z = -x;\n",
+            "y = a + -b;\n",
+            "w = (-a) * b;\n",
+        ] {
             let result = runner().run_source(src);
             assert!(
                 result.diagnostics.iter().all(|d| d.code != LintCode::L007),
