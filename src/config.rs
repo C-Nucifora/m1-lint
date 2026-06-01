@@ -12,6 +12,8 @@ pub struct Config {
     pub max_nesting_depth: usize,
     pub max_complexity: u32,
     pub enabled: BTreeSet<LintCode>,
+    /// Glob patterns; a file whose path or name matches any is skipped (#9).
+    pub exclude: Vec<String>,
 }
 
 impl Default for Config {
@@ -21,6 +23,7 @@ impl Default for Config {
             max_nesting_depth: 4,
             max_complexity: 10,
             enabled: LintCode::all_codes().iter().copied().collect(),
+            exclude: Vec::new(),
         }
     }
 }
@@ -33,6 +36,7 @@ struct RawConfig {
     max_complexity: Option<u32>,
     select: Option<Vec<String>>,
     ignore: Option<Vec<String>>,
+    exclude: Option<Vec<String>>,
 }
 
 /// A configuration error (maps to CLI exit code 2).
@@ -75,6 +79,15 @@ impl Config {
             }
             dir = d.parent();
         }
+        // No project `.m1lint.toml`: fall back to the user-global config
+        // (`$XDG_CONFIG_HOME/m1lint/config.toml`, else `~/.config/...`) if present (#9).
+        if let Some(global) = global_config_path()
+            && global.is_file()
+        {
+            let text =
+                std::fs::read_to_string(&global).map_err(|e| ConfigError::Toml(e.to_string()))?;
+            return Config::from_toml_str(&text);
+        }
         Ok(Config::default())
     }
 
@@ -88,7 +101,27 @@ impl Config {
         if let Some(n) = raw.max_complexity {
             self.max_complexity = n;
         }
+        if let Some(ex) = raw.exclude {
+            self.exclude = ex;
+        }
         self.apply_filters(raw.select, raw.ignore)
+    }
+
+    /// True if `path` matches any configured `exclude` glob, tested against both
+    /// the full path and the bare file name (so `*.gen.m1scr` and
+    /// `generated/*` both work).
+    pub fn is_excluded(&self, path: &Path) -> bool {
+        if self.exclude.is_empty() {
+            return false;
+        }
+        let full = path.to_string_lossy();
+        let name = path.file_name().map(|n| n.to_string_lossy());
+        self.exclude
+            .iter()
+            .any(|pat| match glob::Pattern::new(pat) {
+                Ok(p) => p.matches(&full) || name.as_deref().is_some_and(|n| p.matches(n)),
+                Err(_) => false,
+            })
     }
 
     /// Apply select-then-ignore over the current `enabled` set.
@@ -131,6 +164,7 @@ fn parse_raw(s: &str) -> Result<RawConfig, ConfigError> {
             "max-complexity" => raw.max_complexity = v.as_integer().map(|n| n as u32),
             "select" => raw.select = Some(string_array(v)?),
             "ignore" => raw.ignore = Some(string_array(v)?),
+            "exclude" => raw.exclude = Some(string_array(v)?),
             other => return Err(ConfigError::UnknownKey(other.to_string())),
         }
     }
@@ -147,6 +181,15 @@ fn string_array(v: &toml::Value) -> Result<Vec<String>, ConfigError> {
                 .ok_or_else(|| ConfigError::Toml("expected string in array".into()))
         })
         .collect()
+}
+
+/// The user-global config path: `$XDG_CONFIG_HOME/m1lint/config.toml`, or
+/// `$HOME/.config/m1lint/config.toml`. `None` if neither env var is set.
+fn global_config_path() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    Some(base.join("m1lint").join("config.toml"))
 }
 
 /// Helper for callers (CLI/tests) needing the config's directory base.
@@ -211,5 +254,22 @@ mod tests {
         // A directory unlikely to contain .m1lint.toml up its chain in CI.
         let cfg = Config::discover(&tmp).unwrap();
         assert!(cfg.enabled.len() <= 12);
+    }
+
+    #[test]
+    fn parses_and_applies_exclude_globs() {
+        let cfg = Config::from_toml_str("exclude = [\"*.gen.m1scr\", \"generated/*\"]\n").unwrap();
+        assert!(cfg.is_excluded(Path::new("foo.gen.m1scr")));
+        assert!(
+            cfg.is_excluded(Path::new("a/b/foo.gen.m1scr")),
+            "matches on the bare file name too"
+        );
+        assert!(cfg.is_excluded(Path::new("generated/x.m1scr")));
+        assert!(!cfg.is_excluded(Path::new("src/real.m1scr")));
+    }
+
+    #[test]
+    fn no_exclude_skips_nothing() {
+        assert!(!Config::default().is_excluded(Path::new("anything.m1scr")));
     }
 }

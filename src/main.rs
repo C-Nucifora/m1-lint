@@ -82,6 +82,11 @@ fn main() {
             cfg_fail(e);
         }
 
+        // Skip files matching an `exclude` glob from the config (#9).
+        if cfg.is_excluded(path) {
+            continue;
+        }
+
         let runner = Runner::new(Registry::from_config(&cfg));
 
         match runner.run_file(path) {
