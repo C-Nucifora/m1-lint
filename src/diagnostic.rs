@@ -28,6 +28,8 @@ pub enum LintCode {
     L010,
     /// L011 — comment-style
     L011,
+    /// L012 — unused-local
+    L012,
 }
 
 impl fmt::Display for LintCode {
@@ -44,6 +46,7 @@ impl fmt::Display for LintCode {
             LintCode::L009 => write!(f, "L009"),
             LintCode::L010 => write!(f, "L010"),
             LintCode::L011 => write!(f, "L011"),
+            LintCode::L012 => write!(f, "L012"),
         }
     }
 }
@@ -53,7 +56,7 @@ impl LintCode {
     pub fn all_codes() -> &'static [LintCode] {
         use LintCode::*;
         &[
-            L001, L002, L003, L004, L005, L006, L007, L008, L009, L010, L011,
+            L001, L002, L003, L004, L005, L006, L007, L008, L009, L010, L011, L012,
         ]
     }
 
@@ -79,6 +82,7 @@ impl LintCode {
             LintCode::L009 => "cyclomatic-complexity",
             LintCode::L010 => "tab-for-indentation",
             LintCode::L011 => "comment-style",
+            LintCode::L012 => "unused-local",
         }
     }
 
@@ -149,8 +153,8 @@ mod tests {
     }
 
     #[test]
-    fn all_codes_has_eleven() {
-        assert_eq!(LintCode::all_codes().len(), 11);
+    fn all_codes_has_twelve() {
+        assert_eq!(LintCode::all_codes().len(), 12);
     }
 
     #[test]

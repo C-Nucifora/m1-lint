@@ -1,0 +1,3 @@
+local unused = 1;
+local kept = 2;
+Out = kept;

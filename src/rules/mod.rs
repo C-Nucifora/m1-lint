@@ -15,6 +15,7 @@ pub mod l008_nesting_too_deep;
 pub mod l009_cyclomatic_complexity;
 pub mod l010_tab_indentation;
 pub mod l011_comment_style;
+pub mod l012_unused_local;
 
 /// A lint rule.
 ///

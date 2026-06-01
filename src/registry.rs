@@ -108,6 +108,7 @@ impl Registry {
                 }
                 LintCode::L010 => r.register(Box::new(l010_tab_indentation::TabIndentation)),
                 LintCode::L011 => r.register(Box::new(l011_comment_style::CommentStyle)),
+                LintCode::L012 => r.register(Box::new(l012_unused_local::UnusedLocal)),
             }
         }
         r

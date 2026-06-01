@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn default_enables_all() {
-        assert_eq!(Config::default().enabled.len(), 11);
+        assert_eq!(Config::default().enabled.len(), 12);
         assert_eq!(Config::default().max_line_length, 88);
     }
 
@@ -210,6 +210,6 @@ mod tests {
         let tmp = std::env::temp_dir();
         // A directory unlikely to contain .m1lint.toml up its chain in CI.
         let cfg = Config::discover(&tmp).unwrap();
-        assert!(cfg.enabled.len() <= 11);
+        assert!(cfg.enabled.len() <= 12);
     }
 }
