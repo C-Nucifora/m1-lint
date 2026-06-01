@@ -61,16 +61,44 @@ impl Runner {
         Ok(self.run_source(&source))
     }
 
-    /// Apply safe autofixes to a source string. See [`crate::fix::Fixer`].
+    /// Apply safe autofixes to a source string, one pass. See [`crate::fix::Fixer`].
     pub fn fix_source(&self, source: &str) -> Result<Option<String>, crate::fix::FixError> {
         crate::fix::Fixer::new(&self.registry).fix_source(source)
+    }
+
+    /// Apply autofixes repeatedly until the source stabilises (no further
+    /// edits) or a safety cap is hit. A single pass drops edits that overlap an
+    /// earlier-accepted edit, so two rules fixing the same token would leave the
+    /// file partially fixed and re-trigger on the next run. Iterating applies
+    /// the dropped fixes too, making `--fix` idempotent in one invocation (#13).
+    ///
+    /// Returns `Ok(Some(fixed))` if any pass changed the source, `Ok(None)` if
+    /// it was already clean. An unsafe fix on the first pass propagates as
+    /// before; once some safe fixes have applied, an unsafe later pass simply
+    /// stops the loop and keeps what was safely applied.
+    pub fn fix_source_stable(&self, source: &str) -> Result<Option<String>, crate::fix::FixError> {
+        const MAX_PASSES: usize = 10;
+        let mut current = source.to_string();
+        let mut changed = false;
+        for _ in 0..MAX_PASSES {
+            match self.fix_source(&current) {
+                Ok(Some(next)) => {
+                    current = next;
+                    changed = true;
+                }
+                Ok(None) => break,
+                Err(_) if changed => break, // keep the safe fixes already applied
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(changed.then_some(current))
     }
 
     /// Apply safe autofixes to a file, writing it back when changed.
     /// Returns `Ok(true)` if the file was modified.
     pub fn fix_file(&self, path: &Path) -> std::io::Result<bool> {
         let source = std::fs::read_to_string(path)?;
-        match self.fix_source(&source) {
+        match self.fix_source_stable(&source) {
             Ok(Some(fixed)) => {
                 std::fs::write(path, fixed)?;
                 Ok(true)
@@ -120,5 +148,29 @@ mod tests {
     fn fix_source_none_when_clean() {
         let runner = Runner::new(crate::registry::Registry::default_v2());
         assert_eq!(runner.fix_source("x = a eq b;\n").unwrap(), None);
+    }
+
+    #[test]
+    fn fix_source_stable_reaches_fixed_point() {
+        let runner = Runner::new(crate::registry::Registry::default_v2());
+        // Multiple rules fire (==/&& rewrites). The stable fixer loops until no
+        // edit remains, so the result is a fixed point — re-running finds
+        // nothing more, even if a single pass had to drop overlapping edits (#13).
+        let src = "x = a == b && c;\n";
+        let fixed = runner
+            .fix_source_stable(src)
+            .unwrap()
+            .expect("should apply at least one fix");
+        assert_eq!(
+            runner.fix_source(&fixed).unwrap(),
+            None,
+            "stable fix must be a fixed point, got residue in {fixed:?}"
+        );
+    }
+
+    #[test]
+    fn fix_source_stable_none_when_clean() {
+        let runner = Runner::new(crate::registry::Registry::default_v2());
+        assert_eq!(runner.fix_source_stable("x = a eq b;\n").unwrap(), None);
     }
 }
