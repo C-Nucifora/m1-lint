@@ -128,8 +128,10 @@ mod tests {
     fn default_v1_with_config_applies_line_length() {
         // A line of 50 chars is fine at the default (88) but over a custom 40.
         let src = format!("// {}\n", "x".repeat(50));
-        let mut cfg = crate::config::Config::default();
-        cfg.max_line_length = 40;
+        let cfg = crate::config::Config {
+            max_line_length: 40,
+            ..Default::default()
+        };
         let run = crate::runner::Runner::new(Registry::default_v1_with_config(&cfg));
         assert!(
             run.run_source(&src)
