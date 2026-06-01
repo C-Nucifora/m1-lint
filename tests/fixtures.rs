@@ -88,6 +88,10 @@ fn fixture_l009_complex() {
     run_fixture("l009_complex");
 }
 #[test]
+fn fixture_l012_unused() {
+    run_fixture("l012_unused");
+}
+#[test]
 fn fixture_l010_tabs() {
     run_fixture("l010_tabs");
 }
