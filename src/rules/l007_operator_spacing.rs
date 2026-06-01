@@ -153,6 +153,26 @@ mod tests {
     }
 
     #[test]
+    fn no_diagnostic_on_unary_minus() {
+        // A unary negation lives inside a UnaryExpression, so its `-` is not a
+        // direct child of a binary/assignment node and must never be flagged for
+        // a "missing space before" (it has no left operand). Regression for #16.
+        for src in ["x = -1.0;\n", "z = -x;\n", "y = a + -b;\n", "w = (-a) * b;\n"] {
+            let result = runner().run_source(src);
+            assert!(
+                result.diagnostics.iter().all(|d| d.code != LintCode::L007),
+                "L007 should not fire on unary minus in {src:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn still_flags_binary_minus_without_spaces() {
+        let result = runner().run_source("x = a-b;\n");
+        assert!(result.diagnostics.iter().any(|d| d.code == LintCode::L007));
+    }
+
+    #[test]
     fn fixes_missing_spacing() {
         let mut r = Registry::empty();
         r.register(Box::new(OperatorSpacing));
