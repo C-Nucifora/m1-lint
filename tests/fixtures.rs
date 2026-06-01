@@ -84,6 +84,10 @@ fn fixture_l008_nesting() {
     run_fixture("l008_nesting");
 }
 #[test]
+fn fixture_l009_complex() {
+    run_fixture("l009_complex");
+}
+#[test]
 fn fixture_l010_tabs() {
     run_fixture("l010_tabs");
 }
