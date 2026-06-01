@@ -116,15 +116,15 @@ impl Config {
 }
 
 fn parse_raw(s: &str) -> Result<RawConfig, ConfigError> {
-    let value: toml::Value = s
+    // Parse the document as a TOML table. (toml 1.x changed `str::parse::<Value>`
+    // to expect a bare value, not a document, so a `key = val` config failed to
+    // parse — parse a `Table` directly instead.)
+    let table: toml::Table = s
         .parse()
         .map_err(|e: toml::de::Error| ConfigError::Toml(e.to_string()))?;
-    let table = value
-        .as_table()
-        .ok_or_else(|| ConfigError::Toml("top level must be a table".into()))?;
 
     let mut raw = RawConfig::default();
-    for (k, v) in table {
+    for (k, v) in &table {
         match k.as_str() {
             "max-line-length" => raw.max_line_length = v.as_integer().map(|n| n as usize),
             "max-nesting-depth" => raw.max_nesting_depth = v.as_integer().map(|n| n as usize),
