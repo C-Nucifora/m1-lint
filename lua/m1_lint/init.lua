@@ -69,9 +69,15 @@ function M.setup(opts)
     end,
   }, opts.linter or {})
 
-  -- Register linter for the filetype
-  lint.linters_by_ft =
-    vim.tbl_deep_extend("force", lint.linters_by_ft or {}, { m1scr = { "m1_lint" } })
+  -- Register linter for the filetype. Append to the existing m1scr list rather
+  -- than overwriting it with tbl_deep_extend("force", …), which would clobber a
+  -- sibling linter (e.g. m1_typecheck) depending on plugin load order (#16).
+  lint.linters_by_ft = lint.linters_by_ft or {}
+  local ft = lint.linters_by_ft.m1scr or {}
+  if not vim.tbl_contains(ft, "m1_lint") then
+    table.insert(ft, "m1_lint")
+  end
+  lint.linters_by_ft.m1scr = ft
 
   -- Auto-lint on save and InsertLeave if no autocmd already set
   if opts.auto_lint ~= false then
