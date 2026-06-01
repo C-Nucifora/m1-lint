@@ -84,10 +84,6 @@ fn main() {
 
         let runner = Runner::new(Registry::from_config(&cfg));
 
-        if do_fix && let Err(e) = runner.fix_file(path) {
-            eprintln!("warning: could not fix {}: {}", path.display(), e);
-        }
-
         match runner.run_file(path) {
             Ok(result) => {
                 if !result.syntax_errors.is_empty() {
@@ -108,6 +104,14 @@ fn main() {
                         );
                     }
                     Format::Json => json_files.push((path.display().to_string(), result)),
+                }
+
+                // Apply fixes only after linting completed without an I/O
+                // error. Fixing first risked rewriting the file on disk and
+                // then failing to re-read it, leaving it altered with no output
+                // (#10).
+                if do_fix && let Err(e) = runner.fix_file(path) {
+                    eprintln!("warning: could not fix {}: {}", path.display(), e);
                 }
             }
             Err(e) => fail(&format!("could not read {}: {}", path.display(), e)),
