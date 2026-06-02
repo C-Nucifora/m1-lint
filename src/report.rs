@@ -117,6 +117,45 @@ pub fn render_json(files: &[(String, RunResult)]) -> String {
     out
 }
 
+/// The full rule catalogue as JSON (schema version 1):
+/// `{"version":1,"rules":[{"code","name","fixable"},…]}`.
+///
+/// Sourced directly from [`crate::diagnostic::LintCode`] — the single source of
+/// truth for the rule set — so external consumers (editor plugins, docs) can
+/// enumerate the rules without copying the list and drifting out of sync.
+pub fn render_rules_json() -> String {
+    use crate::diagnostic::LintCode;
+    let mut out = String::from("{\"version\":1,\"rules\":[");
+    for (i, code) in LintCode::all_codes().iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str("{\"code\":");
+        esc(&code.to_string(), &mut out);
+        out.push_str(",\"name\":");
+        esc(code.name(), &mut out);
+        let _ = write!(out, ",\"fixable\":{}", code.fixable());
+        out.push('}');
+    }
+    out.push_str("]}");
+    out
+}
+
+/// The rule catalogue as human-readable lines (`Lxxx  name  (fixable)`).
+pub fn render_rules_human() -> String {
+    use crate::diagnostic::LintCode;
+    let mut out = String::new();
+    for code in LintCode::all_codes() {
+        let _ = writeln!(
+            out,
+            "{code}  {}{}",
+            code.name(),
+            if code.fixable() { "  (fixable)" } else { "" }
+        );
+    }
+    out
+}
+
 fn range_json(out: &mut String, range: &m1_core::Range, byte: &std::ops::Range<usize>) {
     let _ = write!(
         out,
@@ -153,5 +192,35 @@ mod tests {
         let mut s = String::new();
         esc("a\"b\\c\n", &mut s);
         assert_eq!(s, "\"a\\\"b\\\\c\\n\"");
+    }
+
+    #[test]
+    fn rules_json_covers_every_code() {
+        use crate::diagnostic::LintCode;
+        let json = render_rules_json();
+        assert!(json.starts_with("{\"version\":1,\"rules\":["));
+        // Every code, name and fixable flag is present and matches LintCode.
+        for code in LintCode::all_codes() {
+            assert!(
+                json.contains(&format!("\"code\":\"{code}\"")),
+                "missing {code}"
+            );
+            assert!(json.contains(&format!("\"name\":\"{}\"", code.name())));
+        }
+        // L004 is fixable, L001 is not.
+        assert!(
+            json.contains("\"code\":\"L004\",\"name\":\"eq-operator-preferred\",\"fixable\":true")
+        );
+        assert!(json.contains("\"code\":\"L001\",\"name\":\"line-too-long\",\"fixable\":false"));
+    }
+
+    #[test]
+    fn rules_human_lists_each_code() {
+        use crate::diagnostic::LintCode;
+        let text = render_rules_human();
+        for code in LintCode::all_codes() {
+            assert!(text.contains(&code.to_string()), "missing {code}");
+        }
+        assert!(text.contains("(fixable)"));
     }
 }

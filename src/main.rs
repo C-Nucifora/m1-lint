@@ -23,6 +23,19 @@ fn main() {
         print_help();
         process::exit(0);
     }
+    // --rules prints the rule catalogue (the single source of truth for tools
+    // that enumerate rules) and exits, honouring --format json|human.
+    if args.iter().any(|a| a == "--rules") {
+        let json = args
+            .windows(2)
+            .any(|w| w[0] == "--format" && w[1] == "json");
+        if json {
+            println!("{}", report::render_rules_json());
+        } else {
+            print!("{}", report::render_rules_human());
+        }
+        process::exit(0);
+    }
 
     let mut format = Format::Human;
     let mut do_fix = false;
@@ -176,6 +189,7 @@ fn print_help() {
     println!("  --max-complexity <N>");
     println!("  --select <CODES>         comma-separated; only these rules run");
     println!("  --ignore <CODES>         comma-separated; remove these rules");
+    println!("  --rules                  print the rule catalogue (with --format json) and exit");
     println!("  -h, --help");
     println!("  -V, --version");
     println!();

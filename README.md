@@ -46,6 +46,12 @@ stack is a manual, local-workspace concern.
 | L009 | Warning | cyclomatic complexity too high (configurable threshold) |
 | L010 | Warning | tab used for indentation |
 | L011 | Warning | comment-style violation |
+| L012 | Warning | local binding is never used |
+
+The catalogue is also available machine-readably with `m1-lint --rules --format
+json` (schema `{"version":1,"rules":[{"code","name","fixable"}]}`), sourced
+directly from the `LintCode` enum so external tools can enumerate the rules
+without copying the list.
 
 ## CLI usage
 
@@ -53,6 +59,7 @@ stack is a manual, local-workspace concern.
 m1-lint <file.m1scr>...              # human-readable diagnostics
 m1-lint --format json <file.m1scr>   # machine-readable JSON
 m1-lint --fix <file.m1scr>           # apply safe autofixes in place
+m1-lint --rules                      # list every rule (add --format json)
 ```
 
 Autofixes are only applied when the fixed source re-parses and preserves the
