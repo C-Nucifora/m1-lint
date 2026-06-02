@@ -20,58 +20,9 @@ impl Registry {
         self.rules.push(rule);
     }
 
-    /// Returns the default registry for m1-lint v1 (default thresholds).
-    pub fn default_v1() -> Self {
-        Self::default_v1_with_config(&Config::default())
-    }
-
-    /// The v1 rule set (L001–L009) with thresholds taken from `cfg` (line
-    /// length, nesting depth, complexity), so custom limits aren't silently
-    /// dropped when building the v1 registry directly.
-    pub fn default_v1_with_config(cfg: &Config) -> Self {
-        let mut r = Self::empty();
-        r.register(Box::new(crate::rules::l001_line_too_long::LineTooLong {
-            max_len: cfg.max_line_length,
-        }));
-        r.register(Box::new(
-            crate::rules::l002_trailing_whitespace::TrailingWhitespace,
-        ));
-        r.register(Box::new(
-            crate::rules::l003_missing_final_newline::MissingFinalNewline,
-        ));
-        r.register(Box::new(
-            crate::rules::l004_eq_operator_preferred::EqOperatorPreferred,
-        ));
-        r.register(Box::new(
-            crate::rules::l005_logical_operator_preferred::LogicalOperatorPreferred,
-        ));
-        r.register(Box::new(
-            crate::rules::l006_float_eq_comparison::FloatEqComparison,
-        ));
-        r.register(Box::new(
-            crate::rules::l007_operator_spacing::OperatorSpacing,
-        ));
-        r.register(Box::new(
-            crate::rules::l008_nesting_too_deep::NestingTooDeep {
-                max_depth: cfg.max_nesting_depth,
-            },
-        ));
-        r.register(Box::new(
-            crate::rules::l009_cyclomatic_complexity::CyclomaticComplexity {
-                max_complexity: cfg.max_complexity,
-            },
-        ));
-        r
-    }
-
     /// All registered rules.
     pub fn rules(&self) -> &[Box<dyn Rule>] {
         &self.rules
-    }
-
-    /// The full v2 rule set with default thresholds.
-    pub fn default_v2() -> Self {
-        Self::from_config(&Config::default())
     }
 
     /// Build a registry containing exactly the rules enabled by `cfg`, with
@@ -115,6 +66,15 @@ impl Registry {
     }
 }
 
+impl Default for Registry {
+    /// The default rule set: every rule enabled at default thresholds. This is
+    /// the single source of truth for "all rules" — `from_config(&Config::default())`
+    /// — so new rules can never be silently omitted from a parallel hardcoded list.
+    fn default() -> Self {
+        Self::from_config(&Config::default())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,23 +86,23 @@ mod tests {
     }
 
     #[test]
-    fn default_v1_with_config_applies_line_length() {
+    fn from_config_applies_custom_thresholds() {
         // A line of 50 chars is fine at the default (88) but over a custom 40.
         let src = format!("// {}\n", "x".repeat(50));
         let cfg = crate::config::Config {
             max_line_length: 40,
             ..Default::default()
         };
-        let run = crate::runner::Runner::new(Registry::default_v1_with_config(&cfg));
+        let run = crate::runner::Runner::new(Registry::from_config(&cfg));
         assert!(
             run.run_source(&src)
                 .diagnostics
                 .iter()
                 .any(|d| d.code == LintCode::L001),
-            "custom max_line_length should be applied by default_v1_with_config"
+            "custom max_line_length should be applied by from_config"
         );
         // ...and the default registry must NOT flag it.
-        let run_default = crate::runner::Runner::new(Registry::default_v1());
+        let run_default = crate::runner::Runner::new(Registry::default());
         assert!(
             run_default
                 .run_source(&src)
