@@ -139,20 +139,20 @@ mod tests {
 
     #[test]
     fn fix_source_rewrites_eq_eq() {
-        let runner = Runner::new(crate::registry::Registry::default_v2());
+        let runner = Runner::new(crate::registry::Registry::default());
         let out = runner.fix_source("x = a == b;\n").unwrap();
         assert_eq!(out.as_deref(), Some("x = a eq b;\n"));
     }
 
     #[test]
     fn fix_source_none_when_clean() {
-        let runner = Runner::new(crate::registry::Registry::default_v2());
+        let runner = Runner::new(crate::registry::Registry::default());
         assert_eq!(runner.fix_source("x = a eq b;\n").unwrap(), None);
     }
 
     #[test]
     fn fix_source_stable_reaches_fixed_point() {
-        let runner = Runner::new(crate::registry::Registry::default_v2());
+        let runner = Runner::new(crate::registry::Registry::default());
         // Multiple rules fire (==/&& rewrites). The stable fixer loops until no
         // edit remains, so the result is a fixed point — re-running finds
         // nothing more, even if a single pass had to drop overlapping edits (#13).
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn fix_source_stable_none_when_clean() {
-        let runner = Runner::new(crate::registry::Registry::default_v2());
+        let runner = Runner::new(crate::registry::Registry::default());
         assert_eq!(runner.fix_source_stable("x = a eq b;\n").unwrap(), None);
     }
 }

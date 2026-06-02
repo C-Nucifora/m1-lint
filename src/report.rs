@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn json_has_expected_shape() {
-        let runner = Runner::new(Registry::default_v2());
+        let runner = Runner::new(Registry::default());
         let result = runner.run_source("x = a == b;\n");
         let json = render_json(&[("Demo.m1scr".to_string(), result)]);
         assert!(json.starts_with("{\"version\":2,"));

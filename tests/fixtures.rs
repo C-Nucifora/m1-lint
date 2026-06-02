@@ -10,7 +10,7 @@ use m1_lint::runner::Runner;
 use std::path::Path;
 
 fn runner() -> Runner {
-    Runner::new(Registry::default_v2())
+    Runner::new(Registry::default())
 }
 
 fn run_fixture(stem: &str) {

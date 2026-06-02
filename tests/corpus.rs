@@ -24,7 +24,7 @@ fn corpus_no_panic() {
         dir.display()
     );
 
-    let runner = Runner::new(Registry::default_v1());
+    let runner = Runner::new(Registry::default());
     let mut count = 0usize;
 
     for entry in std::fs::read_dir(dir).expect("read corpus dir") {
@@ -55,7 +55,7 @@ fn corpus_fix_safe() {
         }
     };
     let dir = std::path::Path::new(&corpus_path);
-    let runner = m1_lint::runner::Runner::new(m1_lint::registry::Registry::default_v2());
+    let runner = m1_lint::runner::Runner::new(m1_lint::registry::Registry::default());
     let mut count = 0usize;
     for entry in std::fs::read_dir(dir).expect("read corpus dir") {
         let path = entry.expect("dir entry").path();

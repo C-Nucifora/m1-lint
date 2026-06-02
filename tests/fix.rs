@@ -10,7 +10,7 @@ fn run_fix(stem: &str) {
     let input = std::fs::read_to_string(dir.join(format!("{stem}.in.m1scr"))).unwrap();
     let expected = std::fs::read_to_string(dir.join(format!("{stem}.out.m1scr"))).unwrap();
 
-    let runner = Runner::new(Registry::default_v2());
+    let runner = Runner::new(Registry::default());
     let fixed = runner.fix_source(&input).unwrap().unwrap_or(input.clone());
     assert_eq!(fixed, expected, "fix mismatch for {stem}");
 
