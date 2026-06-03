@@ -44,7 +44,11 @@ impl Default for Config {
             max_nesting_depth: 4,
             max_complexity: 10,
             indent_style: IndentStyle::default(),
-            enabled: LintCode::all_codes().iter().copied().collect(),
+            enabled: LintCode::all_codes()
+                .iter()
+                .copied()
+                .filter(|c| !c.off_by_default())
+                .collect(),
             exclude: Vec::new(),
         }
     }
@@ -255,8 +259,10 @@ mod tests {
     }
 
     #[test]
-    fn default_enables_all() {
+    fn default_enables_all_on_by_default_rules() {
+        // 16 codes total, one (L017) off by default.
         assert_eq!(Config::default().enabled.len(), 15);
+        assert!(!Config::default().enabled.contains(&LintCode::L017));
         assert_eq!(Config::default().max_line_length, 88);
     }
 
@@ -304,7 +310,7 @@ mod tests {
         let tmp = std::env::temp_dir();
         // A directory unlikely to contain .m1lint.toml up its chain in CI.
         let cfg = Config::discover(&tmp).unwrap();
-        assert!(cfg.enabled.len() <= 15);
+        assert!(cfg.enabled.len() <= 16);
     }
 
     #[test]

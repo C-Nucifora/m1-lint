@@ -71,6 +71,7 @@ impl Registry {
                 LintCode::L016 => {
                     r.register(Box::new(l016_local_variable_naming::LocalVariableNaming))
                 }
+                LintCode::L017 => r.register(Box::new(l017_magic_number::MagicNumber)),
             }
         }
         r
