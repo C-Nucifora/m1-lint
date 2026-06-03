@@ -63,6 +63,9 @@ impl Registry {
                 LintCode::L014 => r.register(Box::new(
                     l014_expand_undefined_variable::ExpandUndefinedVariable,
                 )),
+                LintCode::L015 => r.register(Box::new(
+                    l015_local_missing_initializer::LocalMissingInitializer,
+                )),
             }
         }
         r
