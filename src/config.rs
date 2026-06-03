@@ -5,12 +5,33 @@ use std::path::{Path, PathBuf};
 
 use crate::diagnostic::LintCode;
 
+/// Which character indentation must use (L010). The M1 manual mandates tabs, so
+/// that is the default; teams preferring spaces set `indent-style = "spaces"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IndentStyle {
+    #[default]
+    Tab,
+    Spaces,
+}
+
+impl IndentStyle {
+    fn parse(s: &str) -> Option<IndentStyle> {
+        match s {
+            "tab" | "tabs" => Some(IndentStyle::Tab),
+            "space" | "spaces" => Some(IndentStyle::Spaces),
+            _ => None,
+        }
+    }
+}
+
 /// The resolved configuration the runner uses.
 #[derive(Debug, Clone)]
 pub struct Config {
     pub max_line_length: usize,
     pub max_nesting_depth: usize,
     pub max_complexity: u32,
+    /// Required indentation character (L010). Defaults to tabs, per the manual.
+    pub indent_style: IndentStyle,
     pub enabled: BTreeSet<LintCode>,
     /// Glob patterns; a file whose path or name matches any is skipped (#9).
     pub exclude: Vec<String>,
@@ -22,6 +43,7 @@ impl Default for Config {
             max_line_length: 88,
             max_nesting_depth: 4,
             max_complexity: 10,
+            indent_style: IndentStyle::default(),
             enabled: LintCode::all_codes().iter().copied().collect(),
             exclude: Vec::new(),
         }
@@ -34,6 +56,7 @@ struct RawConfig {
     max_line_length: Option<usize>,
     max_nesting_depth: Option<usize>,
     max_complexity: Option<u32>,
+    indent_style: Option<IndentStyle>,
     select: Option<Vec<String>>,
     ignore: Option<Vec<String>>,
     exclude: Option<Vec<String>>,
@@ -101,6 +124,9 @@ impl Config {
         if let Some(n) = raw.max_complexity {
             self.max_complexity = n;
         }
+        if let Some(style) = raw.indent_style {
+            self.indent_style = style;
+        }
         if let Some(ex) = raw.exclude {
             self.exclude = ex;
         }
@@ -162,6 +188,15 @@ fn parse_raw(s: &str) -> Result<RawConfig, ConfigError> {
             "max-line-length" => raw.max_line_length = v.as_integer().map(|n| n as usize),
             "max-nesting-depth" => raw.max_nesting_depth = v.as_integer().map(|n| n as usize),
             "max-complexity" => raw.max_complexity = v.as_integer().map(|n| n as u32),
+            "indent-style" => {
+                let s = v
+                    .as_str()
+                    .ok_or_else(|| ConfigError::Toml("indent-style must be a string".into()))?;
+                raw.indent_style = Some(
+                    IndentStyle::parse(s)
+                        .ok_or_else(|| ConfigError::Toml(format!("invalid indent-style: {s}")))?,
+                );
+            }
             "select" => raw.select = Some(string_array(v)?),
             "ignore" => raw.ignore = Some(string_array(v)?),
             "exclude" => raw.exclude = Some(string_array(v)?),
@@ -202,6 +237,22 @@ pub fn dir_of(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn indent_style_defaults_to_tab() {
+        assert_eq!(Config::default().indent_style, IndentStyle::Tab);
+    }
+
+    #[test]
+    fn indent_style_parsed_from_toml() {
+        let c = Config::from_toml_str("indent-style = \"spaces\"\n").unwrap();
+        assert_eq!(c.indent_style, IndentStyle::Spaces);
+    }
+
+    #[test]
+    fn invalid_indent_style_is_an_error() {
+        assert!(Config::from_toml_str("indent-style = \"tabz\"\n").is_err());
+    }
 
     #[test]
     fn default_enables_all() {
