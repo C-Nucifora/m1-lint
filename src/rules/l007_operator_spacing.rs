@@ -1,8 +1,10 @@
 //! L007 — operator-spacing
 //!
 //! Binary and assignment operator tokens must be surrounded by a space on each
-//! side. Checked operators: `+`, `-`, `*`, `/`, `%`, the assignment forms
-//! `=`/`+=`/`-=`/`*=`/`/=`, and the relational operators `<`, `>`, `<=`, `>=`.
+//! side. Checked operators: the arithmetic `+`, `-`, `*`, `/`, `%`; the bitwise
+//! `&`, `|`, `^`, `<<`, `>>`; the assignment forms `=`/`+=`/`-=`/`*=`/`/=` and
+//! the compound forms `%=`/`&=`/`|=`/`^=`/`<<=`/`>>=`; and the relational
+//! operators `<`, `>`, `<=`, `>=`. This mirrors exactly the set m1-fmt spaces.
 
 use crate::diagnostic::{LintCode, LintDiagnostic};
 use crate::rules::Rule;
@@ -19,11 +21,24 @@ fn is_checked_operator(kind: Kind) -> bool {
             | Kind::Star
             | Kind::Slash
             | Kind::Percent
+            // bitwise binary
+            | Kind::Amp
+            | Kind::Pipe
+            | Kind::Caret
+            | Kind::LtLt
+            | Kind::GtGt
             | Kind::Assign // assignment =
             | Kind::PlusEq
             | Kind::MinusEq
             | Kind::StarEq
             | Kind::SlashEq
+            // compound assignment added in the v0.4.0 grammar
+            | Kind::PercentEq
+            | Kind::AmpEq
+            | Kind::PipeEq
+            | Kind::CaretEq
+            | Kind::LtLtEq
+            | Kind::GtGtEq
             | Kind::Lt
             | Kind::Gt
             | Kind::LtEq
@@ -184,5 +199,50 @@ mod tests {
         let fixer = crate::fix::Fixer::new(&r);
         let out = fixer.fix_source("x = a+b;\n").unwrap();
         assert_eq!(out.as_deref(), Some("x = a + b;\n"));
+    }
+
+    #[test]
+    fn flags_and_fixes_compound_assignment_operators() {
+        // The compound-assignment operators added in the v0.4.0 grammar
+        // (%= &= |= ^= <<= >>=) must be flagged and fixed like every other one.
+        for (src, fixed) in [
+            ("x%=1;\n", "x %= 1;\n"),
+            ("x&=1;\n", "x &= 1;\n"),
+            ("x|=1;\n", "x |= 1;\n"),
+            ("x^=1;\n", "x ^= 1;\n"),
+            ("x<<=1;\n", "x <<= 1;\n"),
+            ("x>>=1;\n", "x >>= 1;\n"),
+        ] {
+            let result = runner().run_source(src);
+            assert!(
+                result.diagnostics.iter().any(|d| d.code == LintCode::L007),
+                "L007 should flag {src:?}"
+            );
+            let mut r = Registry::empty();
+            r.register(Box::new(OperatorSpacing));
+            let fixer = crate::fix::Fixer::new(&r);
+            assert_eq!(
+                fixer.fix_source(src).unwrap().as_deref(),
+                Some(fixed),
+                "fix for {src:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn flags_bitwise_binary_operators() {
+        for src in [
+            "x = a&b;\n",
+            "x = a|b;\n",
+            "x = a^b;\n",
+            "x = a<<b;\n",
+            "x = a>>b;\n",
+        ] {
+            let result = runner().run_source(src);
+            assert!(
+                result.diagnostics.iter().any(|d| d.code == LintCode::L007),
+                "L007 should flag {src:?}"
+            );
+        }
     }
 }
