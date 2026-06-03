@@ -48,7 +48,7 @@ change across the stack.
 | L007 | Warning | missing space around an operator |
 | L008 | Warning | nesting too deep (configurable threshold) |
 | L009 | Warning | cyclomatic complexity too high (configurable threshold) |
-| L010 | Warning | tab used for indentation |
+| L010 | Warning | indentation uses the wrong char (default: tabs required) |
 | L011 | Warning | comment-style violation |
 | L012 | Warning | local binding is never used |
 | L014 | Warning | `expand` variable `$(VAR)` not bound by an enclosing `expand` |
@@ -72,7 +72,8 @@ m1-lint --rules                      # list every rule (add --format json)
 Autofixes are only applied when the fixed source re-parses and preserves the
 script's semantic tokens. Rule selection and thresholds can be configured via a
 `.m1lint.toml` discovered upward from the input file (or passed explicitly), with
-`select`/`ignore` lists and per-rule thresholds.
+`select`/`ignore` lists and per-rule thresholds. `indent-style` chooses the
+indentation L010 enforces — `"tab"` (default, per the M1 manual) or `"spaces"`.
 
 ## Build & test
 

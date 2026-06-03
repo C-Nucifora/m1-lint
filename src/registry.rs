@@ -57,7 +57,9 @@ impl Registry {
                         max_complexity: cfg.max_complexity,
                     }))
                 }
-                LintCode::L010 => r.register(Box::new(l010_tab_indentation::TabIndentation)),
+                LintCode::L010 => r.register(Box::new(l010_tab_indentation::Indentation {
+                    style: cfg.indent_style,
+                })),
                 LintCode::L011 => r.register(Box::new(l011_comment_style::CommentStyle)),
                 LintCode::L012 => r.register(Box::new(l012_unused_local::UnusedLocal)),
                 LintCode::L014 => r.register(Box::new(

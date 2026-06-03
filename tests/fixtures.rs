@@ -92,8 +92,8 @@ fn fixture_l012_unused() {
     run_fixture("l012_unused");
 }
 #[test]
-fn fixture_l010_tabs() {
-    run_fixture("l010_tabs");
+fn fixture_l010_spaces() {
+    run_fixture("l010_spaces");
 }
 #[test]
 fn fixture_l011_comment() {

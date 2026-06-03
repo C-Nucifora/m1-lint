@@ -90,7 +90,7 @@ impl LintCode {
             LintCode::L007 => "operator-spacing",
             LintCode::L008 => "nesting-too-deep",
             LintCode::L009 => "cyclomatic-complexity",
-            LintCode::L010 => "tab-for-indentation",
+            LintCode::L010 => "indentation-style",
             LintCode::L011 => "comment-style",
             LintCode::L012 => "unused-local",
             LintCode::L014 => "expand-undefined-variable",
