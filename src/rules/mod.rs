@@ -17,6 +17,7 @@ pub mod l010_tab_indentation;
 pub mod l011_comment_style;
 pub mod l012_unused_local;
 pub mod l014_expand_undefined_variable;
+pub mod l015_local_missing_initializer;
 
 /// A lint rule.
 ///

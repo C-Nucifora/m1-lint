@@ -51,6 +51,8 @@ change across the stack.
 | L010 | Warning | tab used for indentation |
 | L011 | Warning | comment-style violation |
 | L012 | Warning | local binding is never used |
+| L014 | Warning | `expand` variable `$(VAR)` not bound by an enclosing `expand` |
+| L015 | Warning | `local` declaration has no initializer (M1 requires one) |
 
 The catalogue is also available machine-readably with `m1-lint --rules --format
 json` (schema `{"version":1,"rules":[{"code","name","fixable"}]}`), sourced
