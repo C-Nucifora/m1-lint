@@ -34,6 +34,8 @@ pub enum LintCode {
     L014,
     /// L015 — local-missing-initializer
     L015,
+    /// L016 — local-variable-naming
+    L016,
 }
 
 impl fmt::Display for LintCode {
@@ -53,6 +55,7 @@ impl fmt::Display for LintCode {
             LintCode::L012 => write!(f, "L012"),
             LintCode::L014 => write!(f, "L014"),
             LintCode::L015 => write!(f, "L015"),
+            LintCode::L016 => write!(f, "L016"),
         }
     }
 }
@@ -63,6 +66,7 @@ impl LintCode {
         use LintCode::*;
         &[
             L001, L002, L003, L004, L005, L006, L007, L008, L009, L010, L011, L012, L014, L015,
+            L016,
         ]
     }
 
@@ -91,6 +95,7 @@ impl LintCode {
             LintCode::L012 => "unused-local",
             LintCode::L014 => "expand-undefined-variable",
             LintCode::L015 => "local-missing-initializer",
+            LintCode::L016 => "local-variable-naming",
         }
     }
 
@@ -161,8 +166,8 @@ mod tests {
     }
 
     #[test]
-    fn all_codes_has_fourteen() {
-        assert_eq!(LintCode::all_codes().len(), 14);
+    fn all_codes_has_fifteen() {
+        assert_eq!(LintCode::all_codes().len(), 15);
     }
 
     #[test]

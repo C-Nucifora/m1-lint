@@ -66,6 +66,9 @@ impl Registry {
                 LintCode::L015 => r.register(Box::new(
                     l015_local_missing_initializer::LocalMissingInitializer,
                 )),
+                LintCode::L016 => {
+                    r.register(Box::new(l016_local_variable_naming::LocalVariableNaming))
+                }
             }
         }
         r
