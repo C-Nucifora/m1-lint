@@ -19,6 +19,7 @@ pub mod l012_unused_local;
 pub mod l014_expand_undefined_variable;
 pub mod l015_local_missing_initializer;
 pub mod l016_local_variable_naming;
+pub mod l017_magic_number;
 
 /// A lint rule.
 ///
