@@ -62,6 +62,26 @@ json` (schema `{"version":1,"rules":[{"code","name","fixable"}]}`), sourced
 directly from the `LintCode` enum so external tools can enumerate the rules
 without copying the list.
 
+### Suppressing a diagnostic — `// @m1:allow(...)`
+
+A `// @m1:allow(L0xx, …)` annotation (the toolchain-wide annotation framework,
+m1-core#33) suppresses the listed rule(s) on the construct it is attached to —
+the M1 analogue of `// eslint-disable-next-line`. A bare `// @m1:allow`
+suppresses every rule on that construct.
+
+```m1
+// @m1:allow(L010)
+    Indented With Spaces = 1;     // L010 not reported on this line
+
+Foo = some_long_expression; // @m1:allow(L008)   ← trailing form, attaches to this statement
+```
+
+The annotation attaches **leading** (the next statement, so it stacks on
+consecutive lines above its target) or **trailing** (a statement it follows on
+the same line). Suppression is line-scoped to the target construct. (Reporting
+only — `--fix` still applies mechanical fixes; most suppressible rules are
+non-fixable.)
+
 ## CLI usage
 
 ```sh
