@@ -56,8 +56,14 @@ impl Runner {
     }
 
     /// Lint a file on disk.
+    ///
+    /// Reads through the shared tolerant decoder ([`m1_workspace::read_text`]):
+    /// MoTeC `.m1scr` files declare UTF-8 but emit Windows-1252 bytes for
+    /// non-ASCII characters (a yaw-rate unit `°/s` stores `°` as the single byte
+    /// `0xB0`). A strict UTF-8 read would reject such a valid file as
+    /// "unreadable" and skip it; the tolerant decode lints it instead (#66).
     pub fn run_file(&self, path: &Path) -> std::io::Result<RunResult> {
-        let source = std::fs::read_to_string(path)?;
+        let source = m1_workspace::read_text(path)?;
         Ok(self.run_source(&source))
     }
 
@@ -97,7 +103,7 @@ impl Runner {
     /// Apply safe autofixes to a file, writing it back when changed.
     /// Returns `Ok(true)` if the file was modified.
     pub fn fix_file(&self, path: &Path) -> std::io::Result<bool> {
-        let source = std::fs::read_to_string(path)?;
+        let source = m1_workspace::read_text(path)?;
         match self.fix_source_stable(&source) {
             Ok(Some(fixed)) => {
                 std::fs::write(path, fixed)?;

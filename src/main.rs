@@ -139,7 +139,18 @@ fn main() {
                     eprintln!("warning: could not fix {}: {}", path.display(), e);
                 }
             }
-            Err(e) => fail(&format!("could not read {}: {}", path.display(), e)),
+            // A per-file read error (a genuinely unreadable path: missing,
+            // permission-denied, a directory) must not abort the whole batch —
+            // report it, mark the run failed, and keep linting later files.
+            // Deferring the non-zero exit to after the loop (and making it the
+            // lint-failure code 1, not the usage/abort code 2) mirrors m1-fmt's
+            // per-file loop, so `m1-lint Scripts/*.m1scr` no longer leaves an
+            // unknown number of scripts unchecked behind one file (#66).
+            Err(e) => {
+                eprintln!("error: could not read {}: {}", path.display(), e);
+                any_error = true;
+                continue;
+            }
         }
     }
 

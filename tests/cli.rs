@@ -88,3 +88,79 @@ fn unknown_equals_flag_still_rejected() {
     let _ = std::fs::remove_file(&file);
     assert_eq!(out.status.code(), Some(2), "unknown flag must exit 2");
 }
+
+/// Write raw `bytes` to a uniquely-named temp file and return its path. Used to
+/// plant a non-UTF-8 (`0xB0`) MoTeC byte that strict `read_to_string` rejects.
+fn temp_file_bytes(name: &str, bytes: &[u8]) -> std::path::PathBuf {
+    let mut dir = std::env::temp_dir();
+    dir.push(format!("m1lint-cli-{}-{}", std::process::id(), name));
+    let mut f = std::fs::File::create(&dir).unwrap();
+    f.write_all(bytes).unwrap();
+    dir
+}
+
+#[test]
+fn windows_1252_file_is_linted_and_batch_continues() {
+    // A `.m1scr` with a Windows-1252 `°` (0xB0) in a comment is valid MoTeC but
+    // not valid UTF-8. Passed FIRST in the batch, it must (a) be decoded and
+    // linted rather than aborting the run, and (b) not prevent the later dirty
+    // file's L002 trailing-whitespace diagnostic from being reported (#66).
+    let deg = temp_file_bytes("deg.m1scr", b"// yaw \xb0/s\n[\n]\n");
+    let dirty = temp_file("trailing.m1scr", "Math.Constant Y = 2\t \n");
+    let out = bin().arg(&deg).arg(&dirty).output().expect("run m1-lint");
+    let _ = std::fs::remove_file(&deg);
+    let _ = std::fs::remove_file(&dirty);
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // The decode must not surface as a read error...
+    assert!(
+        !stderr.contains("could not read"),
+        "0xB0 file should be decoded, not reported unreadable. stderr: {stderr}"
+    );
+    // ...the later dirty file must still be linted (its L002 appears)...
+    assert!(
+        stderr.contains("L002"),
+        "later file's L002 must be reported (no abort). stderr: {stderr}"
+    );
+    // ...and the run must not abort with the usage/arg code.
+    assert_ne!(
+        out.status.code(),
+        Some(2),
+        "decode path must not exit 2. stderr: {stderr}"
+    );
+}
+
+#[test]
+fn unreadable_file_continues_and_exits_one() {
+    // A genuinely unreadable path (does not exist) placed FIRST must report an
+    // error, keep linting the later dirty file (its L002 still shows), and exit
+    // with the lint-failure code 1 — not abort the batch with 2 (#66).
+    let mut missing = std::env::temp_dir();
+    missing.push(format!(
+        "m1lint-cli-{}-nonexistent.m1scr",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&missing); // ensure it does not exist
+    let dirty = temp_file("trailing-after-missing.m1scr", "Math.Constant Y = 2\t \n");
+    let out = bin()
+        .arg(&missing)
+        .arg(&dirty)
+        .output()
+        .expect("run m1-lint");
+    let _ = std::fs::remove_file(&dirty);
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("could not read"),
+        "missing file should report a read error. stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("L002"),
+        "later file must still be linted after an unreadable one. stderr: {stderr}"
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "an unreadable file must exit 1 (lint failure), not 2 (abort). stderr: {stderr}"
+    );
+}
