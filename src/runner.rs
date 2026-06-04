@@ -47,6 +47,9 @@ impl Runner {
         let root = cst.root();
         self.walk(&root, source, &mut result.diagnostics);
 
+        // Honour `// @m1:allow(L0xx)` annotations: drop suppressed diagnostics.
+        suppress_allowed(source, &cst, &mut result.diagnostics);
+
         // Sort diagnostics by start position.
         result
             .diagnostics
@@ -124,9 +127,59 @@ impl Runner {
     }
 }
 
+/// Drop diagnostics suppressed by an `// @m1:allow(L0xx, …)` annotation
+/// (m1-core#33). `@allow(L010)` suppresses only the listed codes; a bare
+/// `@allow` suppresses every code on its target construct.
+///
+/// Suppression is **line-based**: a diagnostic is dropped when its line falls
+/// within the annotated construct's line span. Lint diagnostics are
+/// line-oriented (trailing whitespace sits *past* a statement's `;`, beyond the
+/// statement node's byte range), so a line span is the right granularity.
+///
+/// The seed registry is used for parsing so annotations owned by other tools
+/// (`@m1:requires-finite`, …) are not treated as unknown here; m1-lint consumes
+/// only `@allow`.
+fn suppress_allowed(source: &str, cst: &m1_core::Cst, diags: &mut Vec<LintDiagnostic>) {
+    let anns = m1_core::annotations(cst, &m1_core::Registry::seed());
+    // (start_line, end_line inclusive, annotation) for each `@allow` with a target.
+    let spans: Vec<(u32, u32, &m1_core::Annotation)> = anns
+        .all()
+        .iter()
+        .filter(|a| a.kind == "allow")
+        .filter_map(|a| {
+            let t = a.target_byte_range.as_ref()?;
+            Some((
+                byte_line(source, t.start),
+                byte_line(source, t.end.saturating_sub(1)),
+                a,
+            ))
+        })
+        .collect();
+    if spans.is_empty() {
+        return;
+    }
+    diags.retain(|d| {
+        let line = d.inner.range.start.line;
+        let code = d.code.to_string();
+        !spans.iter().any(|(start, end, a)| {
+            line >= *start && line <= *end && (a.args.is_empty() || a.has_positional(&code))
+        })
+    });
+}
+
+/// 0-based line number of `byte` within `source` (count of preceding newlines).
+fn byte_line(source: &str, byte: usize) -> u32 {
+    let b = byte.min(source.len());
+    source.as_bytes()[..b]
+        .iter()
+        .filter(|&&c| c == b'\n')
+        .count() as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagnostic::LintCode;
     use crate::registry::Registry;
 
     #[test]
@@ -178,5 +231,55 @@ mod tests {
     fn fix_source_stable_none_when_clean() {
         let runner = Runner::new(crate::registry::Registry::default());
         assert_eq!(runner.fix_source_stable("x = a eq b;\n").unwrap(), None);
+    }
+
+    fn has(diags: &[LintDiagnostic], code: LintCode) -> bool {
+        diags.iter().any(|d| d.code == code)
+    }
+
+    #[test]
+    fn allow_annotation_suppresses_listed_code() {
+        let runner = Runner::new(Registry::default());
+        // Trailing whitespace on the assignment line fires L002 (and sits past
+        // the statement's `;`, so this also exercises line- vs byte-span).
+        let dirty = "Ratio = 2; \n";
+        assert!(has(&runner.run_source(dirty).diagnostics, LintCode::L002));
+
+        let allowed = "// @m1:allow(L002)\nRatio = 2; \n";
+        assert!(!has(
+            &runner.run_source(allowed).diagnostics,
+            LintCode::L002
+        ));
+    }
+
+    #[test]
+    fn allow_annotation_does_not_suppress_other_codes() {
+        let runner = Runner::new(Registry::default());
+        // Allow L010 only; the L002 trailing-whitespace must still fire.
+        let src = "// @m1:allow(L010)\nRatio = 2; \n";
+        assert!(has(&runner.run_source(src).diagnostics, LintCode::L002));
+    }
+
+    #[test]
+    fn bare_allow_suppresses_every_code_on_the_line() {
+        let runner = Runner::new(Registry::default());
+        let src = "// @m1:allow\nRatio = 2; \n";
+        assert!(!has(&runner.run_source(src).diagnostics, LintCode::L002));
+    }
+
+    #[test]
+    fn trailing_allow_suppresses_on_the_same_line() {
+        let runner = Runner::new(Registry::default());
+        // Trailing-form annotation attaches to the statement it follows.
+        let src = "Ratio = 2; // @m1:allow(L002)\n";
+        // The space before `//` is not line-trailing, so introduce one another way:
+        let dirty = "Ratio = 2 ; \n"; // trailing space after the ;
+        assert!(has(&runner.run_source(dirty).diagnostics, LintCode::L002));
+        let allowed = "Ratio = 2 ; // @m1:allow(L002)\n";
+        assert!(!has(
+            &runner.run_source(allowed).diagnostics,
+            LintCode::L002
+        ));
+        let _ = src;
     }
 }
