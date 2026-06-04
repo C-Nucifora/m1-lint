@@ -1,6 +1,6 @@
 [package]
 name = "m1-lint"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 description = "Linter for the MoTeC M1 script language"
 license = "GPL-3.0-or-later"
@@ -15,6 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 m1-core = { git = "https://github.com/C-Nucifora/m1-core.git", tag = "v0.4.1" }
+m1-workspace = { git = "https://github.com/nedlane/m1-workspace.git", tag = "v0.2.0" }
 toml = "1.1"
 glob = "0.3"
 
