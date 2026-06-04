@@ -14,7 +14,14 @@ enum Format {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let raw: Vec<String> = std::env::args().collect();
+    // Normalise `--flag=value` into separate `--flag` / `value` tokens so both
+    // the GNU `--flag=value` and the space-separated `--flag value` forms work,
+    // matching m1-fmt/m1-typecheck (clap). A bare `value` (a file path) that
+    // happens to contain `=` is left untouched — only `--`-prefixed tokens split.
+    // `--` (end-of-options) and long flags with no value are passed through. (#69)
+    let args = normalize_args(&raw[1..]);
+
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("m1-lint {}", env!("CARGO_PKG_VERSION"));
         process::exit(0);
@@ -47,7 +54,7 @@ fn main() {
     let mut ignore: Option<Vec<String>> = None;
     let mut files: Vec<PathBuf> = Vec::new();
 
-    let mut it = args[1..].iter();
+    let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--fix" => do_fix = true,
@@ -144,6 +151,26 @@ fn main() {
     }
 }
 
+/// Split any `--flag=value` token into `--flag` and `value`, on the first `=`.
+/// Tokens that don't start with `--`, the bare `--` end-of-options marker, and
+/// `--flag` tokens without `=` pass through unchanged. This lets the hand-rolled
+/// parser accept the GNU `--flag=value` form like clap does (#69).
+fn normalize_args(args: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(args.len());
+    for arg in args {
+        if arg.starts_with("--")
+            && arg != "--"
+            && let Some(eq) = arg.find('=')
+        {
+            out.push(arg[..eq].to_string());
+            out.push(arg[eq + 1..].to_string());
+        } else {
+            out.push(arg.clone());
+        }
+    }
+    out
+}
+
 fn fail(msg: &str) -> ! {
     eprintln!("error: {msg}");
     process::exit(2);
@@ -194,4 +221,35 @@ fn print_help() {
     println!("  -V, --version");
     println!();
     println!("--fix makes minimal edits; for full canonical formatting use m1-fmt.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_args;
+
+    fn norm(args: &[&str]) -> Vec<String> {
+        normalize_args(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn splits_flag_equals_value() {
+        assert_eq!(norm(&["--format=json"]), vec!["--format", "json"]);
+        assert_eq!(norm(&["--select=L010"]), vec!["--select", "L010"]);
+    }
+
+    #[test]
+    fn splits_on_first_equals_only() {
+        // A value may itself contain `=` (e.g. a path); only the first `=` splits.
+        assert_eq!(norm(&["--config=a=b.toml"]), vec!["--config", "a=b.toml"]);
+    }
+
+    #[test]
+    fn passes_through_space_form_and_bare_tokens() {
+        assert_eq!(norm(&["--format", "json"]), vec!["--format", "json"]);
+        assert_eq!(norm(&["--fix"]), vec!["--fix"]);
+        // A bare positional containing `=` (not `--`-prefixed) is untouched.
+        assert_eq!(norm(&["a=b.m1scr"]), vec!["a=b.m1scr"]);
+        // The end-of-options marker is preserved verbatim.
+        assert_eq!(norm(&["--"]), vec!["--"]);
+    }
 }

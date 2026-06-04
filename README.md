@@ -55,6 +55,7 @@ change across the stack.
 | L015 | Warning | `local` declaration has no initializer (M1 requires one) |
 | L016 | Warning | `local` name not lowercase-initial / contains spaces |
 | L017 | Warning | magic number (unnamed numeric literal in an expression) — **opt-in**, enable with `--select L017` |
+| L018 | Warning | space in front of a `;` (manual: "Do not put spaces in front of semicolons") — fixable |
 
 The catalogue is also available machine-readably with `m1-lint --rules --format
 json` (schema `{"version":1,"rules":[{"code","name","fixable"}]}`), sourced
@@ -69,6 +70,9 @@ m1-lint --format json <file.m1scr>   # machine-readable JSON
 m1-lint --fix <file.m1scr>           # apply safe autofixes in place
 m1-lint --rules                      # list every rule (add --format json)
 ```
+
+Flags accept both the space-separated (`--format json`) and the GNU
+`--flag=value` (`--format=json`, `--select=L010`) forms.
 
 Autofixes are only applied when the fixed source re-parses and preserves the
 script's semantic tokens. Rule selection and thresholds can be configured via a

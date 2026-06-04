@@ -260,8 +260,8 @@ mod tests {
 
     #[test]
     fn default_enables_all_on_by_default_rules() {
-        // 16 codes total, one (L017) off by default.
-        assert_eq!(Config::default().enabled.len(), 15);
+        // 17 codes total, one (L017) off by default.
+        assert_eq!(Config::default().enabled.len(), 16);
         assert!(!Config::default().enabled.contains(&LintCode::L017));
         assert_eq!(Config::default().max_line_length, 88);
     }

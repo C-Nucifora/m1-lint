@@ -47,7 +47,33 @@ fn is_checked_operator(kind: Kind) -> bool {
 }
 
 fn has_space_before(source: &[u8], byte_start: usize) -> bool {
-    byte_start > 0 && source[byte_start - 1] == b' '
+    if byte_start == 0 {
+        return false;
+    }
+    let prev = source[byte_start - 1];
+    if prev == b' ' {
+        return true;
+    }
+    // m1-fmt wraps long expressions by putting the symbolic operator at the
+    // START of the continuation line, after the tab indentation — which the
+    // manual sanctions. In that case the operator is effectively spaced from its
+    // left operand by the newline, so treat "begins a (possibly indented) line"
+    // as having space before. We accept this when every byte from the operator
+    // back to the previous `\n` (or start of file) is horizontal whitespace
+    // (tab/space). A bare newline immediately before counts too. (#68)
+    if prev == b'\n' {
+        return true;
+    }
+    if prev == b'\t' || prev == b' ' {
+        let line_start = source[..byte_start - 1]
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map_or(0, |i| i + 1);
+        return source[line_start..byte_start]
+            .iter()
+            .all(|&b| b == b' ' || b == b'\t');
+    }
+    false
 }
 
 fn has_space_after(source: &[u8], byte_end: usize) -> bool {
@@ -227,6 +253,52 @@ mod tests {
                 "fix for {src:?}"
             );
         }
+    }
+
+    #[test]
+    fn no_l007_when_operator_begins_continuation_line() {
+        // m1-fmt wraps long binary expressions with the symbolic operator at the
+        // start of the (tab-indented) continuation line — manual-conformant. L007
+        // must NOT flag those, or fmt and lint disagree (#68). The operator has a
+        // newline + tab before it and a space after it.
+        for src in [
+            "x = aaaaaaaa\n\t>= bbbbbbbb;\n",
+            "x = aaaaaaaa\n\t< bbbbbbbb;\n",
+            "x = aaaaaaaa\n\t== bbbbbbbb;\n",
+            "x = aaaaaaaa\n\t+ bbbbbbbb;\n",
+            "x = aaaaaaaa\n    >= bbbbbbbb;\n", // space-indented continuation too
+        ] {
+            let result = runner().run_source(src);
+            assert!(
+                result.diagnostics.iter().all(|d| d.code != LintCode::L007),
+                "L007 must not fire on a line-leading wrapped operator in {src:?}, got {:?}",
+                result.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn fix_leaves_wrapped_operator_untouched() {
+        // The fixer must not "repair" a line-leading operator (it is already
+        // correctly spaced via the newline), i.e. nothing to fix (#68).
+        let mut r = Registry::empty();
+        r.register(Box::new(OperatorSpacing));
+        let fixer = crate::fix::Fixer::new(&r);
+        assert_eq!(
+            fixer.fix_source("x = aaaaaaaa\n\t>= bbbbbbbb;\n").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn still_flags_operator_glued_to_left_operand_mid_line() {
+        // Guard against over-broadening: a mid-line operator with a non-ws byte
+        // immediately before it is still flagged.
+        let result = runner().run_source("x = a\n\t+b;\n");
+        assert!(
+            result.diagnostics.iter().any(|d| d.code == LintCode::L007),
+            "line-leading operator glued to its right operand must still flag (missing space after)"
+        );
     }
 
     #[test]
