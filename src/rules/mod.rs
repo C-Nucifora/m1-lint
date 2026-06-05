@@ -22,6 +22,38 @@ pub mod l016_local_variable_naming;
 pub mod l017_magic_number;
 pub mod l018_semicolon_spacing;
 
+/// Build an [`Edit`][crate::fix::Edit] that replaces a symbolic binary operator
+/// (`==`/`!=`/`&&`/`||`) with its keyword form (`eq`/`neq`/`and`/`or`),
+/// inserting a separating space on any side where the operand is glued.
+///
+/// A bare keyword glued to an operand (`a==b` -> `aeqb`) merges into a single
+/// identifier — a semantics change the fixer rejects, so the glued form would
+/// stay permanently un-fixable. Padding the replacement keeps the token stream
+/// equivalent (`a eq b`) so the fix actually applies (#76). A side that already
+/// has whitespace (or sits at a file boundary) gets no extra space.
+pub(crate) fn keyword_operator_edit(
+    source: &str,
+    byte_range: std::ops::Range<usize>,
+    keyword: &str,
+) -> crate::fix::Edit {
+    let bytes = source.as_bytes();
+    let glued = |b: Option<u8>| matches!(b, Some(c) if !c.is_ascii_whitespace());
+    let before = glued(byte_range.start.checked_sub(1).map(|i| bytes[i]));
+    let after = glued(bytes.get(byte_range.end).copied());
+    let mut replacement = String::with_capacity(keyword.len() + 2);
+    if before {
+        replacement.push(' ');
+    }
+    replacement.push_str(keyword);
+    if after {
+        replacement.push(' ');
+    }
+    crate::fix::Edit {
+        byte_range,
+        replacement,
+    }
+}
+
 /// A lint rule.
 ///
 /// Rules implement one or both of [`check_file`][Rule::check_file] and

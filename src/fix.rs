@@ -42,7 +42,15 @@ impl<'a> Fixer<'a> {
     }
 
     /// Returns `Ok(Some(fixed))` if any safe edit applied, `Ok(None)` if there
-    /// was nothing to fix, or `Err` if the only available fixes are unsafe.
+    /// was nothing to fix, or `Err` if **no** edit can be applied safely.
+    ///
+    /// The whole batch is validated first (the fast common path). If that batch
+    /// would introduce syntax errors or change the token stream, the batch is
+    /// *not* discarded wholesale — that would throw away every independent safe
+    /// fix because of one bad edit (#75/#76). Instead we fall back to applying
+    /// edits incrementally, keeping only those that individually preserve the
+    /// safety invariant and dropping just the offending one(s). `Err` is
+    /// returned only when not a single edit survives.
     pub fn fix_source(&self, source: &str) -> Result<Option<String>, FixError> {
         let before = m1_core::parse(source);
         let lines: Vec<&str> = source.split('\n').collect();
@@ -58,17 +66,54 @@ impl<'a> Fixer<'a> {
             return Ok(None);
         }
 
-        let candidate = apply_edits(source, edits);
-        let after = m1_core::parse(&candidate);
-
-        if after.syntax_diagnostics().len() > before.syntax_diagnostics().len() {
-            return Err(FixError::NewSyntaxErrors);
+        // Fast path: try the whole batch at once.
+        let candidate = apply_edits(source, edits.clone());
+        if is_safe(&before, &candidate) {
+            return Ok(Some(candidate));
         }
-        if !tokens_equivalent(&before, &after) {
+
+        // Fallback: an edit in the batch is unsafe. Rather than discard every
+        // safe fix with it, apply edits one at a time, keeping an edit only when
+        // it (together with those already accepted) stays safe. This salvages
+        // every independent safe fix and drops only the genuinely unsafe ones.
+        let kept = safe_edit_subset(source, &before, edits);
+        if kept.is_empty() {
+            // Surface the reason the offending edit was rejected.
+            let after = m1_core::parse(&candidate);
+            if after.syntax_diagnostics().len() > before.syntax_diagnostics().len() {
+                return Err(FixError::NewSyntaxErrors);
+            }
             return Err(FixError::TokensChanged);
         }
-        Ok(Some(candidate))
+        Ok(Some(apply_edits(source, kept)))
     }
+}
+
+/// Whether `candidate` is a safe rewrite of the `before` parse: no new syntax
+/// errors and a token stream equivalent (modulo sanctioned operator rewrites).
+fn is_safe(before: &Cst, candidate: &str) -> bool {
+    let after = m1_core::parse(candidate);
+    after.syntax_diagnostics().len() <= before.syntax_diagnostics().len()
+        && tokens_equivalent(before, &after)
+}
+
+/// Greedily select the largest prefix-stable subset of `edits` that keeps the
+/// rewrite safe. Edits are considered in source order (matching `apply_edits`'s
+/// overlap handling); each is accepted only if applying the running set stays
+/// safe, so one unsafe edit no longer poisons the independent safe ones (#75).
+fn safe_edit_subset(source: &str, before: &Cst, mut edits: Vec<Edit>) -> Vec<Edit> {
+    edits.sort_by_key(|e| e.byte_range.start);
+    edits.dedup();
+    let mut kept: Vec<Edit> = Vec::new();
+    for edit in edits {
+        let mut trial = kept.clone();
+        trial.push(edit.clone());
+        if is_safe(before, &apply_edits(source, trial.clone())) {
+            kept = trial;
+        }
+        // else: this edit (with the accepted set) is unsafe — drop just it.
+    }
+    kept
 }
 
 fn collect_node_edits(reg: &Registry, node: &Node, source: &str, edits: &mut Vec<Edit>) {
@@ -142,6 +187,66 @@ fn tokens_equivalent(before: &Cst, after: &Cst) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagnostic::LintCode;
+    use crate::registry::Registry;
+    use crate::rules::Rule;
+
+    /// A test-only rule that emits a deliberately *unsafe* edit: it renames an
+    /// identifier `a` to `zzz`, which changes the token stream (not a sanctioned
+    /// rewrite). Used to prove the fixer salvages other rules' safe edits when
+    /// one rule's edit must be rejected (#75).
+    struct UnsafeRenameA;
+    impl Rule for UnsafeRenameA {
+        fn code(&self) -> LintCode {
+            LintCode::L004
+        }
+        fn name(&self) -> &'static str {
+            "test-unsafe-rename"
+        }
+        fn fix_node(&self, node: &m1_core::Node, source: &str, edits: &mut Vec<Edit>) {
+            if !node.children().is_empty() {
+                return;
+            }
+            if node.text() == "a" {
+                let _ = source;
+                edits.push(Edit {
+                    byte_range: node.byte_range(),
+                    replacement: "zzz".into(),
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn unsafe_edit_does_not_discard_independent_safe_fixes() {
+        // One file with: a token-changing edit (rename `a`->`zzz`, unsafe) on
+        // line 2, plus an independent safe fix (L002 trailing whitespace) on
+        // line 1. The unsafe edit must be dropped while the safe fix is kept,
+        // rather than the whole batch being discarded (#75).
+        let mut r = Registry::empty();
+        r.register(Box::new(
+            crate::rules::l002_trailing_whitespace::TrailingWhitespace,
+        ));
+        r.register(Box::new(UnsafeRenameA));
+        let fixer = Fixer::new(&r);
+
+        let src = "Result = 1;   \nValue = a + b;\n";
+        let out = fixer.fix_source(src).unwrap();
+        // The L002 trailing whitespace on line 1 is removed; the unsafe rename
+        // is dropped, so `a` survives unchanged.
+        assert_eq!(out.as_deref(), Some("Result = 1;\nValue = a + b;\n"));
+    }
+
+    #[test]
+    fn glued_operator_fix_coexists_with_other_fixes() {
+        // The L004 glued-operator fix (now token-safe) and an unrelated L002
+        // trailing-whitespace fix must both apply in the same file (#76 + #75).
+        let r = Registry::default();
+        let fixer = Fixer::new(&r);
+        let src = "Result = 1;   \nValue = a==b;\n";
+        let out = fixer.fix_source(src).unwrap();
+        assert_eq!(out.as_deref(), Some("Result = 1;\nValue = a eq b;\n"));
+    }
 
     #[test]
     fn apply_edits_right_to_left() {

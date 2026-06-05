@@ -60,10 +60,14 @@ impl Rule for LogicalOperatorPreferred {
                     Kind::PipePipe => "or",
                     _ => continue,
                 };
-                edits.push(crate::fix::Edit {
-                    byte_range: child.byte_range(),
-                    replacement: repl.into(),
-                });
+                // Pad the keyword so a glued operand (`a&&b` -> `aandb`) is split
+                // off; otherwise the keyword merges into one identifier, a
+                // semantics change the fixer rejects, never fixing it (#76).
+                edits.push(crate::rules::keyword_operator_edit(
+                    source,
+                    child.byte_range(),
+                    repl,
+                ));
             }
         }
         if node.kind() == Kind::UnaryExpression {
@@ -138,5 +142,31 @@ mod tests {
         let fixer = crate::fix::Fixer::new(&r);
         let out = fixer.fix_source("x = a && b;\n").unwrap();
         assert_eq!(out.as_deref(), Some("x = a and b;\n"));
+    }
+
+    #[test]
+    fn fixes_glued_amp_amp_and_pipe_pipe() {
+        // A glued `a&&b` must become `a and b` (not `aandb`): the keyword
+        // replacement inserts the separating spaces the symbol no longer needs.
+        let mut r = Registry::empty();
+        r.register(Box::new(LogicalOperatorPreferred));
+        let fixer = crate::fix::Fixer::new(&r);
+        assert_eq!(
+            fixer.fix_source("x = a&&b;\n").unwrap().as_deref(),
+            Some("x = a and b;\n")
+        );
+        assert_eq!(
+            fixer.fix_source("x = a||b;\n").unwrap().as_deref(),
+            Some("x = a or b;\n")
+        );
+        // Half-glued forms get just the missing side's space.
+        assert_eq!(
+            fixer.fix_source("x = a &&b;\n").unwrap().as_deref(),
+            Some("x = a and b;\n")
+        );
+        assert_eq!(
+            fixer.fix_source("x = a|| b;\n").unwrap().as_deref(),
+            Some("x = a or b;\n")
+        );
     }
 }

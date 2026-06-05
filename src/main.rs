@@ -135,8 +135,14 @@ fn main() {
                 // error. Fixing first risked rewriting the file on disk and
                 // then failing to re-read it, leaving it altered with no output
                 // (#10).
+                // `fix_file` now applies every independent safe fix and drops
+                // only the genuinely unsafe edits, so an `Err` here means *no*
+                // edit could be applied safely — a real failure to honour
+                // `--fix`, not a silently-skipped subset. Flag it so the process
+                // exits non-zero rather than misleadingly reporting success (#75).
                 if do_fix && let Err(e) = runner.fix_file(path) {
                     eprintln!("warning: could not fix {}: {}", path.display(), e);
+                    any_error = true;
                 }
             }
             // A per-file read error (a genuinely unreadable path: missing,
