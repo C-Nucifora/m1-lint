@@ -38,7 +38,7 @@ impl Rule for EqOperatorPreferred {
         }
     }
 
-    fn fix_node(&self, node: &m1_core::Node, _source: &str, edits: &mut Vec<crate::fix::Edit>) {
+    fn fix_node(&self, node: &m1_core::Node, source: &str, edits: &mut Vec<crate::fix::Edit>) {
         if node.kind() != Kind::BinaryExpression {
             return;
         }
@@ -48,10 +48,15 @@ impl Rule for EqOperatorPreferred {
                 Kind::BangEq => "neq",
                 _ => continue,
             };
-            edits.push(crate::fix::Edit {
-                byte_range: child.byte_range(),
-                replacement: repl.into(),
-            });
+            // A keyword (`eq`/`neq`) glued to an operand would merge into one
+            // identifier (`a==b` -> `aeqb`), a semantics change the fixer
+            // rejects, leaving the glued form permanently un-fixable. Pad the
+            // replacement so the operand byte on a glued side is split off (#76).
+            edits.push(crate::rules::keyword_operator_edit(
+                source,
+                child.byte_range(),
+                repl,
+            ));
         }
     }
 }
@@ -108,5 +113,32 @@ mod tests {
         let fixer = crate::fix::Fixer::new(&r);
         let out = fixer.fix_source("x = a == b;\n").unwrap();
         assert_eq!(out.as_deref(), Some("x = a eq b;\n"));
+    }
+
+    #[test]
+    fn fixes_glued_eq_eq() {
+        // A glued `a==b` must become `a eq b` (not `aeqb`, which would be a
+        // single identifier and a semantics change): the keyword replacement
+        // inserts the separating spaces the symbolic operator no longer needs.
+        let mut r = Registry::empty();
+        r.register(Box::new(EqOperatorPreferred));
+        let fixer = crate::fix::Fixer::new(&r);
+        assert_eq!(
+            fixer.fix_source("x = a==b;\n").unwrap().as_deref(),
+            Some("x = a eq b;\n")
+        );
+        assert_eq!(
+            fixer.fix_source("x = a!=b;\n").unwrap().as_deref(),
+            Some("x = a neq b;\n")
+        );
+        // A half-glued form (space on only one side) gets just the missing space.
+        assert_eq!(
+            fixer.fix_source("x = a ==b;\n").unwrap().as_deref(),
+            Some("x = a eq b;\n")
+        );
+        assert_eq!(
+            fixer.fix_source("x = a== b;\n").unwrap().as_deref(),
+            Some("x = a eq b;\n")
+        );
     }
 }
