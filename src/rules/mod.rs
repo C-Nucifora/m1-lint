@@ -21,6 +21,7 @@ pub mod l015_local_missing_initializer;
 pub mod l016_local_variable_naming;
 pub mod l017_magic_number;
 pub mod l018_semicolon_spacing;
+pub mod l019_cognitive_complexity;
 
 /// Build an [`Edit`][crate::fix::Edit] that replaces a symbolic binary operator
 /// (`==`/`!=`/`&&`/`||`) with its keyword form (`eq`/`neq`/`and`/`or`),
