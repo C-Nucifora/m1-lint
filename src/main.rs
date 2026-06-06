@@ -50,6 +50,7 @@ fn main() {
     let mut max_line: Option<usize> = None;
     let mut max_depth: Option<usize> = None;
     let mut max_complexity: Option<u32> = None;
+    let mut max_cognitive_complexity: Option<u32> = None;
     let mut select: Option<Vec<String>> = None;
     let mut ignore: Option<Vec<String>> = None;
     let mut files: Vec<PathBuf> = Vec::new();
@@ -67,6 +68,9 @@ fn main() {
             "--max-line-length" => max_line = Some(parse_num(it.next(), "--max-line-length")),
             "--max-nesting-depth" => max_depth = Some(parse_num(it.next(), "--max-nesting-depth")),
             "--max-complexity" => max_complexity = Some(parse_num(it.next(), "--max-complexity")),
+            "--max-cognitive-complexity" => {
+                max_cognitive_complexity = Some(parse_num(it.next(), "--max-cognitive-complexity"))
+            }
             "--select" => select = Some(split_codes(it.next(), "--select")),
             "--ignore" => ignore = Some(split_codes(it.next(), "--ignore")),
             s if s.starts_with("--") => fail(&format!("unknown flag: {s}")),
@@ -97,6 +101,9 @@ fn main() {
         }
         if let Some(n) = max_complexity {
             cfg.max_complexity = n;
+        }
+        if let Some(n) = max_cognitive_complexity {
+            cfg.max_cognitive_complexity = n;
         }
         if let Err(e) = cfg.apply_filters(select.clone(), ignore.clone()) {
             cfg_fail(e);
@@ -230,7 +237,8 @@ fn print_help() {
     println!("  --config <path>          use this .m1lint.toml");
     println!("  --max-line-length <N>");
     println!("  --max-nesting-depth <N>");
-    println!("  --max-complexity <N>");
+    println!("  --max-complexity <N>             cyclomatic complexity ceiling (L009)");
+    println!("  --max-cognitive-complexity <N>   cognitive complexity ceiling (L019)");
     println!("  --select <CODES>         comma-separated; only these rules run");
     println!("  --ignore <CODES>         comma-separated; remove these rules");
     println!("  --rules                  print the rule catalogue (with --format json) and exit");

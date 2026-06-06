@@ -88,6 +88,10 @@ fn fixture_l009_complex() {
     run_fixture("l009_complex");
 }
 #[test]
+fn fixture_l019_cognitive() {
+    run_fixture("l019_cognitive");
+}
+#[test]
 fn fixture_l012_unused() {
     run_fixture("l012_unused");
 }

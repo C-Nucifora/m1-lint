@@ -47,7 +47,7 @@ change across the stack.
 | L006 | Error   | float compared with an equality operator |
 | L007 | Warning | missing space around an operator |
 | L008 | Warning | nesting too deep (configurable threshold) |
-| L009 | Warning | cyclomatic complexity too high (configurable threshold) |
+| L009 | Warning | cyclomatic complexity too high — total decision points (configurable, default 40) |
 | L010 | Warning | indentation uses the wrong char (default: tabs required) |
 | L011 | Warning | comment-style violation |
 | L012 | Warning | local binding is never used |
@@ -56,6 +56,13 @@ change across the stack.
 | L016 | Warning | `local` name not lowercase-initial / contains spaces |
 | L017 | Warning | magic number (unnamed numeric literal in an expression) — **opt-in**, enable with `--select L017` |
 | L018 | Warning | space in front of a `;` (manual: "Do not put spaces in front of semicolons") — fixable |
+| L019 | Warning | cognitive complexity too high — Sonar-style, nesting-weighted (configurable, default 15) |
+
+`L009` (cyclomatic) counts every decision point equally and so grows with sheer
+size; `L019` (cognitive) is nesting-weighted, so deeply-nested logic costs far
+more than a long flat sequence. They are complementary: L019 is the primary
+readability gate (`--max-cognitive-complexity`), L009 is a loose backstop for
+pathological branch counts (`--max-complexity`).
 
 The catalogue is also available machine-readably with `m1-lint --rules --format
 json` (schema `{"version":1,"rules":[{"code","name","fixable"}]}`), sourced

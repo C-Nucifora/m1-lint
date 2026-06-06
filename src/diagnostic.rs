@@ -40,6 +40,8 @@ pub enum LintCode {
     L017,
     /// L018 — semicolon-spacing
     L018,
+    /// L019 — cognitive-complexity
+    L019,
 }
 
 impl fmt::Display for LintCode {
@@ -62,6 +64,7 @@ impl fmt::Display for LintCode {
             LintCode::L016 => write!(f, "L016"),
             LintCode::L017 => write!(f, "L017"),
             LintCode::L018 => write!(f, "L018"),
+            LintCode::L019 => write!(f, "L019"),
         }
     }
 }
@@ -72,7 +75,7 @@ impl LintCode {
         use LintCode::*;
         &[
             L001, L002, L003, L004, L005, L006, L007, L008, L009, L010, L011, L012, L014, L015,
-            L016, L017, L018,
+            L016, L017, L018, L019,
         ]
     }
 
@@ -104,6 +107,7 @@ impl LintCode {
             LintCode::L016 => "local-variable-naming",
             LintCode::L017 => "magic-number",
             LintCode::L018 => "semicolon-spacing",
+            LintCode::L019 => "cognitive-complexity",
         }
     }
 
@@ -183,8 +187,8 @@ mod tests {
     }
 
     #[test]
-    fn all_codes_has_seventeen() {
-        assert_eq!(LintCode::all_codes().len(), 17);
+    fn all_codes_has_eighteen() {
+        assert_eq!(LintCode::all_codes().len(), 18);
     }
 
     #[test]

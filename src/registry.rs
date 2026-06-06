@@ -73,6 +73,11 @@ impl Registry {
                 }
                 LintCode::L017 => r.register(Box::new(l017_magic_number::MagicNumber)),
                 LintCode::L018 => r.register(Box::new(l018_semicolon_spacing::SemicolonSpacing)),
+                LintCode::L019 => {
+                    r.register(Box::new(l019_cognitive_complexity::CognitiveComplexity {
+                        max_complexity: cfg.max_cognitive_complexity,
+                    }))
+                }
             }
         }
         r

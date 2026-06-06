@@ -30,6 +30,7 @@ pub struct Config {
     pub max_line_length: usize,
     pub max_nesting_depth: usize,
     pub max_complexity: u32,
+    pub max_cognitive_complexity: u32,
     /// Required indentation character (L010). Defaults to tabs, per the manual.
     pub indent_style: IndentStyle,
     pub enabled: BTreeSet<LintCode>,
@@ -42,7 +43,8 @@ impl Default for Config {
         Config {
             max_line_length: 88,
             max_nesting_depth: 4,
-            max_complexity: 10,
+            max_complexity: 40,
+            max_cognitive_complexity: 15,
             indent_style: IndentStyle::default(),
             enabled: LintCode::all_codes()
                 .iter()
@@ -60,6 +62,7 @@ struct RawConfig {
     max_line_length: Option<usize>,
     max_nesting_depth: Option<usize>,
     max_complexity: Option<u32>,
+    max_cognitive_complexity: Option<u32>,
     indent_style: Option<IndentStyle>,
     select: Option<Vec<String>>,
     ignore: Option<Vec<String>>,
@@ -128,6 +131,9 @@ impl Config {
         if let Some(n) = raw.max_complexity {
             self.max_complexity = n;
         }
+        if let Some(n) = raw.max_cognitive_complexity {
+            self.max_cognitive_complexity = n;
+        }
         if let Some(style) = raw.indent_style {
             self.indent_style = style;
         }
@@ -192,6 +198,9 @@ fn parse_raw(s: &str) -> Result<RawConfig, ConfigError> {
             "max-line-length" => raw.max_line_length = v.as_integer().map(|n| n as usize),
             "max-nesting-depth" => raw.max_nesting_depth = v.as_integer().map(|n| n as usize),
             "max-complexity" => raw.max_complexity = v.as_integer().map(|n| n as u32),
+            "max-cognitive-complexity" => {
+                raw.max_cognitive_complexity = v.as_integer().map(|n| n as u32)
+            }
             "indent-style" => {
                 let s = v
                     .as_str()
@@ -260,8 +269,8 @@ mod tests {
 
     #[test]
     fn default_enables_all_on_by_default_rules() {
-        // 17 codes total, one (L017) off by default.
-        assert_eq!(Config::default().enabled.len(), 16);
+        // 18 codes total, one (L017) off by default.
+        assert_eq!(Config::default().enabled.len(), 17);
         assert!(!Config::default().enabled.contains(&LintCode::L017));
         assert_eq!(Config::default().max_line_length, 88);
     }
@@ -272,6 +281,21 @@ mod tests {
         assert_eq!(cfg.max_line_length, 100);
         assert_eq!(cfg.max_complexity, 12);
         assert_eq!(cfg.max_nesting_depth, 4); // untouched default
+    }
+
+    #[test]
+    fn parses_cognitive_complexity_threshold() {
+        let cfg = Config::from_toml_str("max-cognitive-complexity = 20\n").unwrap();
+        assert_eq!(cfg.max_cognitive_complexity, 20);
+        assert_eq!(cfg.max_complexity, 40); // L009 default untouched
+    }
+
+    #[test]
+    fn loosened_cyclomatic_default() {
+        // L009 default loosened (was 10) now that L019 cognitive is the primary
+        // complexity gate; L009 only catches pathological cyclomatic.
+        assert_eq!(Config::default().max_complexity, 40);
+        assert_eq!(Config::default().max_cognitive_complexity, 15);
     }
 
     #[test]
@@ -310,7 +334,7 @@ mod tests {
         let tmp = std::env::temp_dir();
         // A directory unlikely to contain .m1lint.toml up its chain in CI.
         let cfg = Config::discover(&tmp).unwrap();
-        assert!(cfg.enabled.len() <= 16);
+        assert!(cfg.enabled.len() <= 17);
     }
 
     #[test]
