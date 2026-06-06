@@ -72,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "m1-lint"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "glob",
  "m1-core",
