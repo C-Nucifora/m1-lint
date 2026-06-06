@@ -85,14 +85,31 @@ fn main() {
     let mut json_files: Vec<(String, m1_lint::runner::RunResult)> = Vec::new();
 
     for path in &files {
-        // Resolve config: explicit --config, else discover from the file's dir.
-        let mut cfg = match &config_path {
-            Some(p) => read_config(p),
-            None => match Config::discover(&m1_lint::config::dir_of(path)) {
-                Ok(c) => c,
-                Err(e) => cfg_fail(e),
-            },
-        };
+        // Resolve config, lowest layer first: the unified m1-tools.toml, then the
+        // tool-specific file (explicit --config, else discovered .m1lint.toml /
+        // user-global), then CLI flags. So a project can be configured entirely
+        // from m1-tools.toml; a .m1lint.toml still works and overrides it.
+        let dir = m1_lint::config::dir_of(path);
+        let mut cfg = Config::default();
+        if let Some(tc) = m1_workspace::config::M1ToolsConfig::discover(&dir)
+            && let Err(e) = cfg.apply_tools_config(&tc)
+        {
+            cfg_fail(e);
+        }
+        match &config_path {
+            Some(p) => {
+                let text = std::fs::read_to_string(p)
+                    .unwrap_or_else(|e| fail(&format!("could not read {}: {e}", p.display())));
+                if let Err(e) = cfg.apply_toml_str(&text) {
+                    cfg_fail(e);
+                }
+            }
+            None => {
+                if let Err(e) = cfg.apply_discovered_file(&dir) {
+                    cfg_fail(e);
+                }
+            }
+        }
         if let Some(n) = max_line {
             cfg.max_line_length = n;
         }
@@ -217,16 +234,6 @@ fn split_codes(v: Option<&String>, flag: &str) -> Vec<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
-}
-fn read_config(p: &std::path::Path) -> Config {
-    let text = match std::fs::read_to_string(p) {
-        Ok(t) => t,
-        Err(e) => fail(&format!("could not read {}: {}", p.display(), e)),
-    };
-    match Config::from_toml_str(&text) {
-        Ok(c) => c,
-        Err(e) => cfg_fail(e),
-    }
 }
 fn print_help() {
     println!("usage: m1-lint [OPTIONS] <file>...");
