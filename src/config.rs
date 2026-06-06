@@ -15,7 +15,7 @@ pub enum IndentStyle {
 }
 
 impl IndentStyle {
-    fn parse(s: &str) -> Option<IndentStyle> {
+    pub fn parse(s: &str) -> Option<IndentStyle> {
         match s {
             "tab" | "tabs" => Some(IndentStyle::Tab),
             "space" | "spaces" => Some(IndentStyle::Spaces),
@@ -181,6 +181,68 @@ impl Config {
             }
         }
         Ok(())
+    }
+
+    /// Overlay the unified `m1-tools.toml` onto this config (only set fields).
+    /// Reads `[lint]` thresholds + `exclude`, the shared `[format].indent_style`
+    /// (the indent character is one decision shared with the formatter), and
+    /// `[diagnostics]` select/ignore.
+    pub fn apply_tools_config(
+        &mut self,
+        tc: &m1_workspace::config::M1ToolsConfig,
+    ) -> Result<(), ConfigError> {
+        if let Some(n) = tc.lint.max_line_length {
+            self.max_line_length = n;
+        }
+        if let Some(n) = tc.lint.max_nesting_depth {
+            self.max_nesting_depth = n;
+        }
+        if let Some(n) = tc.lint.max_complexity {
+            self.max_complexity = n;
+        }
+        if let Some(n) = tc.lint.max_cognitive_complexity {
+            self.max_cognitive_complexity = n;
+        }
+        if let Some(ex) = &tc.lint.exclude {
+            self.exclude = ex.clone();
+        }
+        if let Some(s) = tc.format.indent_style.as_deref() {
+            self.indent_style = IndentStyle::parse(s)
+                .ok_or_else(|| ConfigError::Toml(format!("invalid indent_style: {s}")))?;
+        }
+        self.apply_filters(tc.diagnostics.select.clone(), tc.diagnostics.ignore.clone())
+    }
+
+    /// Overlay a `.m1lint.toml` body (raw, only set fields) onto this config.
+    pub fn apply_toml_str(&mut self, s: &str) -> Result<(), ConfigError> {
+        let raw = parse_raw(s)?;
+        self.apply_raw(raw)
+    }
+
+    /// If a `.m1lint.toml` (walking up from `start_dir`) or the user-global config
+    /// exists, overlay it (only its set keys) onto this config; return whether one
+    /// was found. The non-resetting counterpart of [`Self::discover`].
+    pub fn apply_discovered_file(&mut self, start_dir: &Path) -> Result<bool, ConfigError> {
+        let mut dir: Option<&Path> = Some(start_dir);
+        while let Some(d) = dir {
+            let cand = d.join(".m1lint.toml");
+            if cand.is_file() {
+                let text =
+                    std::fs::read_to_string(&cand).map_err(|e| ConfigError::Toml(e.to_string()))?;
+                self.apply_toml_str(&text)?;
+                return Ok(true);
+            }
+            dir = d.parent();
+        }
+        if let Some(global) = global_config_path()
+            && global.is_file()
+        {
+            let text =
+                std::fs::read_to_string(&global).map_err(|e| ConfigError::Toml(e.to_string()))?;
+            self.apply_toml_str(&text)?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 }
 
@@ -352,5 +414,36 @@ mod tests {
     #[test]
     fn no_exclude_skips_nothing() {
         assert!(!Config::default().is_excluded(Path::new("anything.m1scr")));
+    }
+
+    #[test]
+    fn unified_then_tool_file_then_flags() {
+        let tc = m1_workspace::config::M1ToolsConfig::from_toml_str(
+            "[lint]\nmax_line_length = 100\nmax_complexity = 12\nmax_cognitive_complexity = 9\n\
+             [format]\nindent_style = \"spaces\"\n",
+        )
+        .unwrap();
+        let mut cfg = Config::default();
+        cfg.apply_tools_config(&tc).unwrap();
+        assert_eq!(cfg.max_line_length, 100);
+        assert_eq!(cfg.max_complexity, 12);
+        assert_eq!(cfg.max_cognitive_complexity, 9);
+        assert_eq!(cfg.indent_style, IndentStyle::Spaces);
+        // Tool file overrides one key; the rest of the unified values survive.
+        cfg.apply_toml_str("max-line-length = 120\n").unwrap();
+        assert_eq!(cfg.max_line_length, 120);
+        assert_eq!(cfg.max_complexity, 12, "unified value survives");
+    }
+
+    #[test]
+    fn unified_diagnostics_filter_applies() {
+        let tc = m1_workspace::config::M1ToolsConfig::from_toml_str(
+            "[diagnostics]\nignore = [\"L007\"]\n",
+        )
+        .unwrap();
+        let mut cfg = Config::default();
+        cfg.apply_tools_config(&tc).unwrap();
+        assert!(!cfg.enabled.contains(&LintCode::L007));
+        assert!(cfg.enabled.contains(&LintCode::L001));
     }
 }
