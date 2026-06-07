@@ -61,6 +61,11 @@ impl<'a> Fixer<'a> {
         }
         let root = before.root();
         collect_node_edits(self.registry, &root, source, &mut edits);
+        // Syntax repair: insert any statement-terminating `;` the parser had to
+        // synthesise as a zero-width MISSING node. This is always safe — it only
+        // makes the grammar-required token explicit, reducing the syntax-error
+        // count — so it is applied independently of the lint rules.
+        repair_missing_semicolons(&root, &mut edits);
 
         if edits.is_empty() {
             return Ok(None);
@@ -116,6 +121,22 @@ fn safe_edit_subset(source: &str, before: &Cst, mut edits: Vec<Edit>) -> Vec<Edi
     kept
 }
 
+/// Walk the tree and emit an insert-`;` edit at every zero-width MISSING
+/// semicolon node (a statement the parser recovered as missing its terminator).
+fn repair_missing_semicolons(node: &Node, edits: &mut Vec<Edit>) {
+    if node.is_missing() && node.kind() == Kind::Semicolon {
+        let at = node.byte_range().start;
+        edits.push(Edit {
+            byte_range: at..at,
+            replacement: ";".into(),
+        });
+        return;
+    }
+    for child in node.children() {
+        repair_missing_semicolons(&child, edits);
+    }
+}
+
 fn collect_node_edits(reg: &Registry, node: &Node, source: &str, edits: &mut Vec<Edit>) {
     for rule in reg.rules() {
         rule.fix_node(node, source, edits);
@@ -152,19 +173,31 @@ fn sanctioned(a: &str, b: &str) -> bool {
     )
 }
 
-/// Non-trivia leaf tokens as `(Kind, text)` in source order.
-fn semantic_tokens(cst: &Cst) -> Vec<(Kind, String)> {
+/// A non-trivia leaf token: its kind, text, and whether it is a zero-width
+/// MISSING node the parser inserted during error recovery.
+struct Tok {
+    kind: Kind,
+    text: String,
+    missing: bool,
+}
+
+/// Non-trivia leaf tokens in source order.
+fn semantic_tokens(cst: &Cst) -> Vec<Tok> {
     let mut out = Vec::new();
     collect_tokens(&cst.root(), &mut out);
     out
 }
 
-fn collect_tokens(node: &Node, out: &mut Vec<(Kind, String)>) {
+fn collect_tokens(node: &Node, out: &mut Vec<Tok>) {
     let children = node.children();
     if children.is_empty() {
         match node.kind() {
             Kind::LineComment | Kind::BlockComment => {}
-            k => out.push((k, node.text().to_string())),
+            k => out.push(Tok {
+                kind: k,
+                text: node.text().to_string(),
+                missing: node.is_missing(),
+            }),
         }
         return;
     }
@@ -179,9 +212,14 @@ fn tokens_equivalent(before: &Cst, after: &Cst) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter()
-        .zip(b.iter())
-        .all(|(x, y)| (x.0 == y.0 && x.1 == y.1) || sanctioned(&x.1, &y.1))
+    a.iter().zip(b.iter()).all(|(x, y)| {
+        (x.kind == y.kind && x.text == y.text)
+            || sanctioned(&x.text, &y.text)
+            // Filling a MISSING token (e.g. inserting the required `;`) with the
+            // present token of the same kind is a safe repair: the grammar already
+            // required that token, so making it explicit changes no meaning.
+            || (x.missing && !y.missing && x.kind == y.kind)
+    })
 }
 
 #[cfg(test)]
@@ -246,6 +284,31 @@ mod tests {
         let src = "Result = 1;   \nValue = a==b;\n";
         let out = fixer.fix_source(src).unwrap();
         assert_eq!(out.as_deref(), Some("Result = 1;\nValue = a eq b;\n"));
+    }
+
+    #[test]
+    fn inserts_a_missing_semicolon() {
+        // A missing statement terminator is a syntax error the parser recovers
+        // from with a zero-width MISSING `;` node. `--fix` should repair it by
+        // inserting the `;`, since the exact required token is unambiguous.
+        let reg = Registry::default();
+        let fixer = Fixer::new(&reg);
+        let out = fixer.fix_source("x = 1\ny = 2;\n").unwrap();
+        assert_eq!(out.as_deref(), Some("x = 1;\ny = 2;\n"));
+    }
+
+    #[test]
+    fn missing_semicolon_fix_converges_and_clears_the_error() {
+        let runner = crate::runner::Runner::new(Registry::default());
+        let fixed = runner
+            .fix_source_stable("Result = 1\n")
+            .unwrap()
+            .expect("the missing semicolon should be inserted");
+        assert_eq!(fixed, "Result = 1;\n");
+        // The repaired source has no remaining syntax errors.
+        assert!(m1_core::parse(&fixed).syntax_diagnostics().is_empty());
+        // And it is a fixed point.
+        assert_eq!(runner.fix_source_stable(&fixed).unwrap(), None);
     }
 
     #[test]
