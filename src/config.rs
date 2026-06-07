@@ -41,6 +41,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
+            // 88 is a tool convention (shared with m1-fmt), not an M1 manual
+            // rule — the manual sets no numeric line limit. See L001's docs.
             max_line_length: 88,
             max_nesting_depth: 4,
             max_complexity: 40,
