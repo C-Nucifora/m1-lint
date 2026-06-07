@@ -75,6 +75,27 @@ pub trait Rule: Send + Sync {
         let _ = (source, lines, diags);
     }
 
+    /// Called once per file with the already-parsed CST.
+    ///
+    /// This is the CST-aware counterpart of [`check_file`][Rule::check_file]: a
+    /// file-scope pass that needs the parse tree (e.g. a two-phase analysis that
+    /// first collects declarations across the whole file, then revisits uses).
+    /// The runner parses the source exactly once and hands the same [`Cst`] here,
+    /// so a rule must never re-`parse` the source itself. `source` is the raw file
+    /// contents and `lines` is the source split on `\n` (trailing newline
+    /// stripped), matching [`check_file`][Rule::check_file].
+    ///
+    /// [`Cst`]: m1_core::Cst
+    fn check_file_cst(
+        &self,
+        cst: &m1_core::Cst,
+        source: &str,
+        lines: &[&str],
+        diags: &mut Vec<LintDiagnostic>,
+    ) {
+        let _ = (cst, source, lines, diags);
+    }
+
     /// Called for every node in the CST (depth-first, pre-order).
     fn check_node(&self, node: &m1_core::Node, source: &str, diags: &mut Vec<LintDiagnostic>) {
         let _ = (node, source, diags);

@@ -59,8 +59,8 @@ impl Rule for ExpandUndefinedVariable {
                     let start = base + start_off;
                     let end = base + end_off;
                     let range = m1_core::Range {
-                        start: byte_to_position(source, start),
-                        end: byte_to_position(source, end),
+                        start: m1_core::byte_to_position(source, start),
+                        end: m1_core::byte_to_position(source, end),
                     };
                     diags.push(LintDiagnostic::new(
                         LintCode::L014,
@@ -112,24 +112,6 @@ fn folded_interpolations(text: &str) -> Vec<(usize, usize, &str)> {
         i += 1;
     }
     out
-}
-
-/// Byte offset → LSP-style `Position` (column is a byte offset within the line,
-/// matching the rest of the toolchain's position convention).
-fn byte_to_position(source: &str, byte: usize) -> m1_core::Position {
-    let upto = byte.min(source.len());
-    let mut line = 0u32;
-    let mut line_start = 0usize;
-    for (idx, b) in source.as_bytes()[..upto].iter().enumerate() {
-        if *b == b'\n' {
-            line += 1;
-            line_start = idx + 1;
-        }
-    }
-    m1_core::Position {
-        line,
-        column: (upto - line_start) as u32,
-    }
 }
 
 /// True if `var` is bound by an `expand (var = …)` ancestor of `node`.

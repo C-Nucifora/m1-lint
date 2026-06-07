@@ -13,6 +13,21 @@ use m1_core::{Kind, Node, Severity};
 /// L007 — flags operators not surrounded by spaces.
 pub struct OperatorSpacing;
 
+/// The set of operators L007 checks. This is intentionally **not** the same as
+/// `m1_core::is_binary_op` / `is_compound_assign` / `is_unary_op`, so those
+/// shared predicates are deliberately not reused here:
+///
+/// - `is_binary_op` also covers the equality operators (`== != eq neq`) and the
+///   logical operators (`&& || and or`). L007 must *not* flag spacing on those —
+///   L004/L005/L006 own the equality/logical operators, and double-flagging
+///   their spacing would change behaviour.
+/// - L007 additionally checks the plain assignment `=` (`Kind::Assign`) and the
+///   relational operators (`< > <= >=`), which `is_compound_assign` does not
+///   cover and `is_binary_op` only partly covers.
+///
+/// So the L007 set = arithmetic + bitwise/shift + relational + every assignment
+/// form (`=`, `+= -= *= /=`, and the compound `%= &= |= ^= <<= >>=`). This
+/// mirrors exactly the set m1-fmt spaces; keep them in lock-step.
 fn is_checked_operator(kind: Kind) -> bool {
     matches!(
         kind,

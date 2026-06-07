@@ -57,8 +57,8 @@ impl Rule for SemicolonSpacing {
         let br = node.byte_range();
         if let Some(gap) = gap_start(source.as_bytes(), br.start) {
             // Report the whitespace gap itself.
-            let start = byte_to_position(source, gap);
-            let end = byte_to_position(source, br.start);
+            let start = m1_core::byte_to_position(source, gap);
+            let end = m1_core::byte_to_position(source, br.start);
             diags.push(LintDiagnostic::new(
                 LintCode::L018,
                 m1_core::Range { start, end },
@@ -81,24 +81,6 @@ impl Rule for SemicolonSpacing {
             });
         }
     }
-}
-
-/// Convert a byte offset to a 0-based line/column [`m1_core::Position`].
-fn byte_to_position(source: &str, byte: usize) -> m1_core::Position {
-    let mut line = 0u32;
-    let mut col = 0u32;
-    for (i, ch) in source.char_indices() {
-        if i >= byte {
-            break;
-        }
-        if ch == '\n' {
-            line += 1;
-            col = 0;
-        } else {
-            col += 1;
-        }
-    }
-    m1_core::Position { line, column: col }
 }
 
 #[cfg(test)]
