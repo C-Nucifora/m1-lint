@@ -41,6 +41,9 @@ impl Runner {
 
         for rule in self.registry.rules() {
             rule.check_file(source, &lines, &mut result.diagnostics);
+            // CST-aware file pass: hand each rule the CST already parsed above so
+            // a rule needing the parse tree at file scope never re-parses.
+            rule.check_file_cst(&cst, source, &lines, &mut result.diagnostics);
         }
 
         // Walk the CST depth-first (pre-order).
@@ -111,8 +114,9 @@ impl Runner {
             Ok(Some(fixed)) => {
                 // Atomic write: a crash / ENOSPC / I/O error mid-write must never
                 // truncate the original script. Write a same-directory temp,
-                // fsync, then rename over the target (#83).
-                atomic_write(path, fixed.as_bytes())?;
+                // fsync, then rename over the target (#83). Shared with m1-fmt via
+                // the `m1_workspace::atomic_write` helper.
+                m1_workspace::atomic_write(path, fixed.as_bytes())?;
                 Ok(true)
             }
             Ok(None) => Ok(false),
@@ -179,43 +183,6 @@ fn byte_line(source: &str, byte: usize) -> u32 {
         .count() as u32
 }
 
-/// Write `bytes` to `path` atomically: create a same-directory temp file, flush
-/// and `fsync` it, then `rename` it over the target. A crash, panic, or I/O
-/// error at any point leaves the original file fully intact — never the
-/// truncated/partial state `fs::write` (`O_TRUNC` then write) can leave (#83).
-/// Mirrors `m1-fmt`'s `atomic_write`.
-fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-
-    // Same-directory temp so the rename stays on one filesystem (cross-fs rename
-    // is not atomic). The pid + file name keep concurrent runs from colliding.
-    let dir = path.parent().unwrap_or_else(|| Path::new("."));
-    let file_name = path.file_name().map(|s| s.to_owned()).unwrap_or_default();
-    let mut tmp_name = std::ffi::OsString::from(".");
-    tmp_name.push(&file_name);
-    tmp_name.push(format!(".{}.tmp", std::process::id()));
-    let tmp = dir.join(tmp_name);
-
-    // Close the handle before renaming; clean up the temp on any failure so a
-    // partial write never lingers.
-    let write_result = (|| -> std::io::Result<()> {
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(bytes)?;
-        f.flush()?;
-        f.sync_all()?;
-        Ok(())
-    })();
-    if let Err(e) = write_result {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e);
-    }
-    if let Err(e) = std::fs::rename(&tmp, path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e);
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,7 +211,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Widget.m1scr");
         std::fs::write(&path, b"old contents\n").unwrap();
-        atomic_write(&path, b"new contents\n").unwrap();
+        m1_workspace::atomic_write(&path, b"new contents\n").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"new contents\n");
         // No leftover temp file in the directory.
         let strays: Vec<_> = std::fs::read_dir(dir.path())

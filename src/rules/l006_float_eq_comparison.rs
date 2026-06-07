@@ -86,8 +86,16 @@ impl Rule for FloatEqComparison {
     /// declared float (annotation or float-literal init), then flag equality
     /// comparisons against them. Comparisons that already contain a float literal
     /// are left to `check_node` so each is reported exactly once.
-    fn check_file(&self, source: &str, _lines: &[&str], diags: &mut Vec<LintDiagnostic>) {
-        let cst = m1_core::parse(source);
+    ///
+    /// Uses the CST the runner already parsed (`check_file_cst`) rather than
+    /// re-parsing the source.
+    fn check_file_cst(
+        &self,
+        cst: &m1_core::Cst,
+        _source: &str,
+        _lines: &[&str],
+        diags: &mut Vec<LintDiagnostic>,
+    ) {
         let root = cst.root();
         let mut float_locals = std::collections::HashSet::new();
         for n in root.descendants() {

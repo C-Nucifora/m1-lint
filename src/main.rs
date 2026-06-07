@@ -3,88 +3,97 @@
 use std::path::PathBuf;
 use std::process;
 
+use clap::{Parser, ValueEnum};
+
 use m1_lint::config::Config;
 use m1_lint::registry::Registry;
 use m1_lint::report;
 use m1_lint::runner::Runner;
 
+/// Output format for diagnostics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Format {
     Human,
     Json,
 }
 
-fn main() {
-    let raw: Vec<String> = std::env::args().collect();
-    // Normalise `--flag=value` into separate `--flag` / `value` tokens so both
-    // the GNU `--flag=value` and the space-separated `--flag value` forms work,
-    // matching m1-fmt/m1-typecheck (clap). A bare `value` (a file path) that
-    // happens to contain `=` is left untouched — only `--`-prefixed tokens split.
-    // `--` (end-of-options) and long flags with no value are passed through. (#69)
-    let args = normalize_args(&raw[1..]);
+#[derive(Parser, Debug)]
+#[command(
+    name = "m1-lint",
+    version,
+    about = "Linter for the MoTeC M1 script language",
+    after_help = "--fix makes minimal edits; for full canonical formatting use m1-fmt."
+)]
+struct Args {
+    /// Files to lint
+    files: Vec<PathBuf>,
 
-    if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("m1-lint {}", env!("CARGO_PKG_VERSION"));
-        process::exit(0);
-    }
-    if args.iter().any(|a| a == "--help" || a == "-h") {
-        print_help();
-        process::exit(0);
-    }
+    /// Output format
+    #[arg(long, value_enum, default_value_t = Format::Human)]
+    format: Format,
+
+    /// Apply safe autofixes in place
+    #[arg(long)]
+    fix: bool,
+
+    /// Use this .m1lint.toml
+    #[arg(long, value_name = "path")]
+    config: Option<PathBuf>,
+
+    /// Maximum line length (L001)
+    #[arg(long, value_name = "N")]
+    max_line_length: Option<usize>,
+
+    /// Maximum nesting depth (L008)
+    #[arg(long, value_name = "N")]
+    max_nesting_depth: Option<usize>,
+
+    /// Cyclomatic complexity ceiling (L009)
+    #[arg(long, value_name = "N")]
+    max_complexity: Option<u32>,
+
+    /// Cognitive complexity ceiling (L019)
+    #[arg(long, value_name = "N")]
+    max_cognitive_complexity: Option<u32>,
+
+    /// Comma-separated codes; only these rules run
+    #[arg(long, value_name = "CODES")]
+    select: Option<String>,
+
+    /// Comma-separated codes; remove these rules
+    #[arg(long, value_name = "CODES")]
+    ignore: Option<String>,
+
+    /// Print the rule catalogue (with --format json) and exit
+    #[arg(long)]
+    rules: bool,
+}
+
+fn main() {
+    let args = Args::parse();
+
     // --rules prints the rule catalogue (the single source of truth for tools
     // that enumerate rules) and exits, honouring --format json|human.
-    if args.iter().any(|a| a == "--rules") {
-        let json = args
-            .windows(2)
-            .any(|w| w[0] == "--format" && w[1] == "json");
-        if json {
-            println!("{}", report::render_rules_json());
-        } else {
-            print!("{}", report::render_rules_human());
+    if args.rules {
+        match args.format {
+            Format::Json => println!("{}", report::render_rules_json()),
+            Format::Human => print!("{}", report::render_rules_human()),
         }
         process::exit(0);
     }
 
-    let mut format = Format::Human;
-    let mut do_fix = false;
-    let mut config_path: Option<PathBuf> = None;
-    let mut max_line: Option<usize> = None;
-    let mut max_depth: Option<usize> = None;
-    let mut max_complexity: Option<u32> = None;
-    let mut max_cognitive_complexity: Option<u32> = None;
-    let mut select: Option<Vec<String>> = None;
-    let mut ignore: Option<Vec<String>> = None;
-    let mut files: Vec<PathBuf> = Vec::new();
-
-    let mut it = args.iter();
-    while let Some(arg) = it.next() {
-        match arg.as_str() {
-            "--fix" => do_fix = true,
-            "--format" => match it.next().map(String::as_str) {
-                Some("human") => format = Format::Human,
-                Some("json") => format = Format::Json,
-                other => fail(&format!("--format expects human|json, got {other:?}")),
-            },
-            "--config" => config_path = Some(PathBuf::from(req(it.next(), "--config"))),
-            "--max-line-length" => max_line = Some(parse_num(it.next(), "--max-line-length")),
-            "--max-nesting-depth" => max_depth = Some(parse_num(it.next(), "--max-nesting-depth")),
-            "--max-complexity" => max_complexity = Some(parse_num(it.next(), "--max-complexity")),
-            "--max-cognitive-complexity" => {
-                max_cognitive_complexity = Some(parse_num(it.next(), "--max-cognitive-complexity"))
-            }
-            "--select" => select = Some(split_codes(it.next(), "--select")),
-            "--ignore" => ignore = Some(split_codes(it.next(), "--ignore")),
-            s if s.starts_with("--") => fail(&format!("unknown flag: {s}")),
-            s => files.push(PathBuf::from(s)),
-        }
-    }
-    if files.is_empty() {
+    if args.files.is_empty() {
         fail("no input files");
     }
+
+    // Split a `--select`/`--ignore` comma list into trimmed, non-empty codes.
+    let select = args.select.as_deref().map(split_codes);
+    let ignore = args.ignore.as_deref().map(split_codes);
 
     let mut any_error = false;
     let mut json_files: Vec<(String, m1_lint::runner::RunResult)> = Vec::new();
 
-    for path in &files {
+    for path in &args.files {
         // Resolve config, lowest layer first: the unified m1-tools.toml, then the
         // tool-specific file (explicit --config, else discovered .m1lint.toml /
         // user-global), then CLI flags. So a project can be configured entirely
@@ -96,7 +105,7 @@ fn main() {
         {
             cfg_fail(e);
         }
-        match &config_path {
+        match &args.config {
             Some(p) => {
                 let text = std::fs::read_to_string(p)
                     .unwrap_or_else(|e| fail(&format!("could not read {}: {e}", p.display())));
@@ -110,16 +119,16 @@ fn main() {
                 }
             }
         }
-        if let Some(n) = max_line {
+        if let Some(n) = args.max_line_length {
             cfg.max_line_length = n;
         }
-        if let Some(n) = max_depth {
+        if let Some(n) = args.max_nesting_depth {
             cfg.max_nesting_depth = n;
         }
-        if let Some(n) = max_complexity {
+        if let Some(n) = args.max_complexity {
             cfg.max_complexity = n;
         }
-        if let Some(n) = max_cognitive_complexity {
+        if let Some(n) = args.max_cognitive_complexity {
             cfg.max_cognitive_complexity = n;
         }
         if let Err(e) = cfg.apply_filters(select.clone(), ignore.clone()) {
@@ -145,7 +154,7 @@ fn main() {
                 {
                     any_error = true;
                 }
-                match format {
+                match args.format {
                     Format::Human => {
                         eprint!(
                             "{}",
@@ -164,7 +173,9 @@ fn main() {
                 // edit could be applied safely — a real failure to honour
                 // `--fix`, not a silently-skipped subset. Flag it so the process
                 // exits non-zero rather than misleadingly reporting success (#75).
-                if do_fix && let Err(e) = runner.fix_file(path) {
+                if args.fix
+                    && let Err(e) = runner.fix_file(path)
+                {
                     eprintln!("warning: could not fix {}: {}", path.display(), e);
                     any_error = true;
                 }
@@ -184,32 +195,12 @@ fn main() {
         }
     }
 
-    if let Format::Json = format {
+    if let Format::Json = args.format {
         println!("{}", report::render_json(&json_files));
     }
     if any_error {
         process::exit(1);
     }
-}
-
-/// Split any `--flag=value` token into `--flag` and `value`, on the first `=`.
-/// Tokens that don't start with `--`, the bare `--` end-of-options marker, and
-/// `--flag` tokens without `=` pass through unchanged. This lets the hand-rolled
-/// parser accept the GNU `--flag=value` form like clap does (#69).
-fn normalize_args(args: &[String]) -> Vec<String> {
-    let mut out = Vec::with_capacity(args.len());
-    for arg in args {
-        if arg.starts_with("--")
-            && arg != "--"
-            && let Some(eq) = arg.find('=')
-        {
-            out.push(arg[..eq].to_string());
-            out.push(arg[eq + 1..].to_string());
-        } else {
-            out.push(arg.clone());
-        }
-    }
-    out
 }
 
 fn fail(msg: &str) -> ! {
@@ -219,69 +210,73 @@ fn fail(msg: &str) -> ! {
 fn cfg_fail(e: m1_lint::config::ConfigError) -> ! {
     fail(&e.to_string())
 }
-fn req<'a>(v: Option<&'a String>, flag: &str) -> &'a str {
-    v.map(String::as_str)
-        .unwrap_or_else(|| fail(&format!("{flag} requires a value")))
-}
-fn parse_num<T: std::str::FromStr>(v: Option<&String>, flag: &str) -> T {
-    req(v, flag)
-        .parse()
-        .unwrap_or_else(|_| fail(&format!("{flag} expects a number")))
-}
-fn split_codes(v: Option<&String>, flag: &str) -> Vec<String> {
-    req(v, flag)
-        .split(',')
+
+/// Split a comma-separated `--select`/`--ignore` value into trimmed, non-empty
+/// codes (e.g. `"L001, L004"` → `["L001", "L004"]`).
+fn split_codes(v: &str) -> Vec<String> {
+    v.split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
 }
-fn print_help() {
-    println!("usage: m1-lint [OPTIONS] <file>...");
-    println!();
-    println!("OPTIONS:");
-    println!("  --format <human|json>    output format (default: human)");
-    println!("  --fix                    apply safe autofixes in place");
-    println!("  --config <path>          use this .m1lint.toml");
-    println!("  --max-line-length <N>");
-    println!("  --max-nesting-depth <N>");
-    println!("  --max-complexity <N>             cyclomatic complexity ceiling (L009)");
-    println!("  --max-cognitive-complexity <N>   cognitive complexity ceiling (L019)");
-    println!("  --select <CODES>         comma-separated; only these rules run");
-    println!("  --ignore <CODES>         comma-separated; remove these rules");
-    println!("  --rules                  print the rule catalogue (with --format json) and exit");
-    println!("  -h, --help");
-    println!("  -V, --version");
-    println!();
-    println!("--fix makes minimal edits; for full canonical formatting use m1-fmt.");
-}
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_args;
+    use super::{Args, split_codes};
+    use clap::Parser;
 
-    fn norm(args: &[&str]) -> Vec<String> {
-        normalize_args(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    fn parse(args: &[&str]) -> Args {
+        let mut v = vec!["m1-lint"];
+        v.extend_from_slice(args);
+        Args::parse_from(v)
     }
 
     #[test]
-    fn splits_flag_equals_value() {
-        assert_eq!(norm(&["--format=json"]), vec!["--format", "json"]);
-        assert_eq!(norm(&["--select=L010"]), vec!["--select", "L010"]);
+    fn splits_comma_codes() {
+        assert_eq!(split_codes("L001,L004"), vec!["L001", "L004"]);
+        assert_eq!(split_codes("L001, L004 "), vec!["L001", "L004"]);
+        assert!(split_codes("").is_empty());
+        assert!(split_codes(" , ").is_empty());
     }
 
     #[test]
-    fn splits_on_first_equals_only() {
-        // A value may itself contain `=` (e.g. a path); only the first `=` splits.
-        assert_eq!(norm(&["--config=a=b.toml"]), vec!["--config", "a=b.toml"]);
+    fn accepts_flag_equals_value_form() {
+        // clap accepts both `--format=json` and `--format json`; the GNU
+        // `=`-form that the old hand-rolled parser had to normalise by hand.
+        let a = parse(&["--format=json", "x.m1scr"]);
+        assert_eq!(a.format, super::Format::Json);
+        let b = parse(&["--select=L010", "x.m1scr"]);
+        assert_eq!(b.select.as_deref(), Some("L010"));
     }
 
     #[test]
-    fn passes_through_space_form_and_bare_tokens() {
-        assert_eq!(norm(&["--format", "json"]), vec!["--format", "json"]);
-        assert_eq!(norm(&["--fix"]), vec!["--fix"]);
-        // A bare positional containing `=` (not `--`-prefixed) is untouched.
-        assert_eq!(norm(&["a=b.m1scr"]), vec!["a=b.m1scr"]);
-        // The end-of-options marker is preserved verbatim.
-        assert_eq!(norm(&["--"]), vec!["--"]);
+    fn accepts_space_separated_form() {
+        let a = parse(&["--format", "json", "x.m1scr"]);
+        assert_eq!(a.format, super::Format::Json);
+    }
+
+    #[test]
+    fn defaults_to_human_no_fix() {
+        let a = parse(&["x.m1scr"]);
+        assert_eq!(a.format, super::Format::Human);
+        assert!(!a.fix);
+        assert!(!a.rules);
+        assert_eq!(a.files.len(), 1);
+    }
+
+    #[test]
+    fn parses_thresholds_and_files() {
+        let a = parse(&[
+            "--max-line-length",
+            "100",
+            "--max-complexity=12",
+            "--fix",
+            "a.m1scr",
+            "b.m1scr",
+        ]);
+        assert_eq!(a.max_line_length, Some(100));
+        assert_eq!(a.max_complexity, Some(12));
+        assert!(a.fix);
+        assert_eq!(a.files.len(), 2);
     }
 }

@@ -7,22 +7,11 @@ use crate::diagnostic::LintCode;
 
 /// Which character indentation must use (L010). The M1 manual mandates tabs, so
 /// that is the default; teams preferring spaces set `indent-style = "spaces"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum IndentStyle {
-    #[default]
-    Tab,
-    Spaces,
-}
-
-impl IndentStyle {
-    pub fn parse(s: &str) -> Option<IndentStyle> {
-        match s {
-            "tab" | "tabs" => Some(IndentStyle::Tab),
-            "space" | "spaces" => Some(IndentStyle::Spaces),
-            _ => None,
-        }
-    }
-}
+///
+/// Re-exported from `m1-workspace`: the formatter and the linter share one
+/// definition (same variants, same default of `Tab`, same string spellings)
+/// instead of each carrying a copy.
+pub use m1_workspace::IndentStyle;
 
 /// The resolved configuration the runner uses.
 #[derive(Debug, Clone)]
