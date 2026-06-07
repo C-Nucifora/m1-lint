@@ -109,7 +109,10 @@ impl Runner {
         let source = m1_workspace::read_text(path)?;
         match self.fix_source_stable(&source) {
             Ok(Some(fixed)) => {
-                std::fs::write(path, fixed)?;
+                // Atomic write: a crash / ENOSPC / I/O error mid-write must never
+                // truncate the original script. Write a same-directory temp,
+                // fsync, then rename over the target (#83).
+                atomic_write(path, fixed.as_bytes())?;
                 Ok(true)
             }
             Ok(None) => Ok(false),
@@ -176,6 +179,43 @@ fn byte_line(source: &str, byte: usize) -> u32 {
         .count() as u32
 }
 
+/// Write `bytes` to `path` atomically: create a same-directory temp file, flush
+/// and `fsync` it, then `rename` it over the target. A crash, panic, or I/O
+/// error at any point leaves the original file fully intact — never the
+/// truncated/partial state `fs::write` (`O_TRUNC` then write) can leave (#83).
+/// Mirrors `m1-fmt`'s `atomic_write`.
+fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    // Same-directory temp so the rename stays on one filesystem (cross-fs rename
+    // is not atomic). The pid + file name keep concurrent runs from colliding.
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path.file_name().map(|s| s.to_owned()).unwrap_or_default();
+    let mut tmp_name = std::ffi::OsString::from(".");
+    tmp_name.push(&file_name);
+    tmp_name.push(format!(".{}.tmp", std::process::id()));
+    let tmp = dir.join(tmp_name);
+
+    // Close the handle before renaming; clean up the temp on any failure so a
+    // partial write never lingers.
+    let write_result = (|| -> std::io::Result<()> {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.flush()?;
+        f.sync_all()?;
+        Ok(())
+    })();
+    if let Err(e) = write_result {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,6 +234,38 @@ mod tests {
         let runner = Runner::new(Registry::empty());
         let result = runner.run_source("");
         assert!(result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn atomic_write_replaces_content_and_leaves_no_temp() {
+        // #83: the fixed content must reach disk via a temp-file + rename, so a
+        // crash mid-write can never truncate the original. Verify the helper
+        // writes the new bytes and leaves no stray `.tmp` sibling behind.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Widget.m1scr");
+        std::fs::write(&path, b"old contents\n").unwrap();
+        atomic_write(&path, b"new contents\n").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new contents\n");
+        // No leftover temp file in the directory.
+        let strays: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".tmp"))
+            .collect();
+        assert!(strays.is_empty(), "temp files left behind: {strays:?}");
+    }
+
+    #[test]
+    fn fix_file_uses_atomic_write() {
+        // End-to-end: --fix path rewrites the file in place with the fixed source.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Widget.m1scr");
+        std::fs::write(&path, "x = a == b;\n").unwrap();
+        let runner = Runner::new(crate::registry::Registry::default());
+        let changed = runner.fix_file(&path).unwrap();
+        assert!(changed);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "x = a eq b;\n");
     }
 
     #[test]
