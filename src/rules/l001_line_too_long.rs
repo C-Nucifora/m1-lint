@@ -2,6 +2,14 @@
 //!
 //! A source line, after stripping trailing whitespace, must not exceed
 //! `max_len` characters (default 88).
+//!
+//! NOTE: the **88-character default is a tool convention, not an M1 rule** — the
+//! M1 Development Manual's "Code Layout and Format" section imposes no numeric
+//! line-length limit. 88 is borrowed from common formatter defaults and is shared
+//! with `m1-fmt` for consistency. Because M1 channel names may contain spaces and
+//! are often descriptive, ordinary assignments can exceed 88 easily; teams should
+//! treat the limit as a configurable preference and raise it (e.g. `100`/`120`)
+//! via `max-line-length` in `.m1lint.toml` (or `m1-tools.toml`) when it is noisy.
 
 use crate::diagnostic::{LintCode, LintDiagnostic};
 use crate::rules::Rule;
@@ -14,6 +22,8 @@ pub struct LineTooLong {
 
 impl Default for LineTooLong {
     fn default() -> Self {
+        // 88 is a tool convention shared with m1-fmt, not an M1 manual rule — see
+        // the module doc-comment. Configurable via `max-line-length`.
         Self { max_len: 88 }
     }
 }
@@ -60,7 +70,10 @@ impl Rule for LineTooLong {
                     range,
                     byte_start..byte_end,
                     Severity::Warning,
-                    format!("line is {char_len} characters (max {})", self.max_len),
+                    format!(
+                        "line is {char_len} characters (max {}; set max-line-length to adjust)",
+                        self.max_len
+                    ),
                 ));
             }
 
@@ -105,6 +118,21 @@ mod tests {
         assert_eq!(result.diagnostics.len(), 1);
         assert_eq!(result.diagnostics[0].code, LintCode::L001);
         assert_eq!(result.diagnostics[0].inner.range.start.line, 0);
+    }
+
+    #[test]
+    fn message_points_to_the_config_knob() {
+        // #85: the 88-char default is a tool convention, not a manual rule. The
+        // message should surface the configurable knob so users can adjust it.
+        let result = runner().run_source(&format!("{}\n", "x".repeat(89)));
+        assert!(
+            result.diagnostics[0]
+                .inner
+                .message
+                .contains("max-line-length"),
+            "message should mention the config knob: {}",
+            result.diagnostics[0].inner.message
+        );
     }
 
     #[test]
