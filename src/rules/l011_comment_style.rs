@@ -11,6 +11,11 @@ pub struct CommentStyle;
 
 /// True if `text` is a line comment needing a space after `//`.
 fn needs_space(text: &str) -> bool {
+    // On a CRLF file the LineComment token includes the trailing `\r` (`//\r`).
+    // That `\r` is a line-ending artifact, not comment content; without stripping
+    // it, a bare `//\r` looks like `//` + a non-space char and L011 would insert a
+    // space that L002 then strips — so `--fix` oscillates and never converges (#82).
+    let text = text.strip_suffix('\r').unwrap_or(text);
     let bytes = text.as_bytes();
     if !text.starts_with("//") {
         return false;
@@ -89,5 +94,38 @@ mod tests {
         let fixer = crate::fix::Fixer::new(&r);
         let out = fixer.fix_source("//hello\nx = 1;\n").unwrap();
         assert_eq!(out.as_deref(), Some("// hello\nx = 1;\n"));
+    }
+
+    #[test]
+    fn bare_comment_with_crlf_does_not_need_a_space() {
+        // #82: on a CRLF file the LineComment token includes the trailing `\r`
+        // (`//\r`). That `\r` is a line-ending artifact, not comment content, so
+        // it must not be treated as "missing space after //" — otherwise L011
+        // re-inserts a space that L002 strips, and `--fix` oscillates forever.
+        assert!(!needs_space("//\r"), "bare `//` + CR needs no space");
+        assert!(needs_space("//x\r"), "real content still needs a space");
+    }
+
+    #[test]
+    fn fix_converges_on_crlf_trailing_space_comment() {
+        // End-to-end with the default ruleset: `// \r\n` must reach a fixed point
+        // (`//\r\n`) and stay there, not bounce between L002 and L011 (#82).
+        let runner = Runner::new(crate::registry::Registry::default());
+        let fixed = runner
+            .fix_source_stable("// \r\nValue = 1;\r\n")
+            .unwrap()
+            .expect("the trailing space should be fixed");
+        // No trailing whitespace remains, and the CRLF endings are preserved.
+        assert!(
+            !fixed.contains(" \r"),
+            "trailing space before CRLF should be gone: {fixed:?}"
+        );
+        assert!(fixed.contains("//\r\n"), "got: {fixed:?}");
+        // Re-running the fixer finds nothing more to do (true fixed point).
+        assert_eq!(
+            runner.fix_source_stable(&fixed).unwrap(),
+            None,
+            "fixer must have converged: {fixed:?}"
+        );
     }
 }
