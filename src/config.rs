@@ -256,7 +256,10 @@ fn parse_raw(s: &str) -> Result<RawConfig, ConfigError> {
 
     let mut raw = RawConfig::default();
     for (k, v) in &table {
-        match k.as_str() {
+        // Accept both the kebab-case `.m1lint.toml` dialect and the snake_case
+        // keys used by the unified `m1-tools.toml` / `--scaffold-config` output,
+        // so the scaffold can be used directly as a `.m1lint.toml` (#84).
+        match k.replace('_', "-").as_str() {
             "max-line-length" => raw.max_line_length = v.as_integer().map(|n| n as usize),
             "max-nesting-depth" => raw.max_nesting_depth = v.as_integer().map(|n| n as usize),
             "max-complexity" => raw.max_complexity = v.as_integer().map(|n| n as u32),
@@ -275,7 +278,8 @@ fn parse_raw(s: &str) -> Result<RawConfig, ConfigError> {
             "select" => raw.select = Some(string_array(v)?),
             "ignore" => raw.ignore = Some(string_array(v)?),
             "exclude" => raw.exclude = Some(string_array(v)?),
-            other => return Err(ConfigError::UnknownKey(other.to_string())),
+            // Report the key as the user wrote it.
+            _ => return Err(ConfigError::UnknownKey(k.to_string())),
         }
     }
     Ok(raw)
@@ -327,6 +331,24 @@ mod tests {
     #[test]
     fn invalid_indent_style_is_an_error() {
         assert!(Config::from_toml_str("indent-style = \"tabz\"\n").is_err());
+    }
+
+    #[test]
+    fn accepts_snake_case_keys_from_the_scaffold() {
+        // The unified m1-tools.toml / `m1-lsp --scaffold-config` uses snake_case;
+        // a user pointing m1-lint at such a file (or copying it to .m1lint.toml)
+        // must not be rejected with "unknown config key" (#84).
+        let c = Config::from_toml_str(
+            "max_line_length = 100\nmax_cognitive_complexity = 9\nindent_style = \"spaces\"\n",
+        )
+        .unwrap();
+        assert_eq!(c.max_line_length, 100);
+        assert_eq!(c.indent_style, IndentStyle::Spaces);
+    }
+
+    #[test]
+    fn genuinely_unknown_key_still_errors() {
+        assert!(Config::from_toml_str("not_a_real_key = 1\n").is_err());
     }
 
     #[test]
