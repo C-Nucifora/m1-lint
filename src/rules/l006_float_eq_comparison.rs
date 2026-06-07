@@ -32,6 +32,26 @@ fn is_eq_op(kind: Kind) -> bool {
     matches!(kind, Kind::EqEq | Kind::BangEq | Kind::Eq | Kind::Neq)
 }
 
+/// The name of a `local` declared with a float type — either an explicit float
+/// type annotation (`local <Float> x` / `<Floating Point>`) or a float-literal
+/// initializer (`local x = 1.5`). `None` for any other local. This is a
+/// syntactic heuristic: it cannot see the type of a local copied from a channel
+/// (`local x = Group.Channel;`), which would need the project type model.
+fn float_local_name(decl: &Node) -> Option<String> {
+    let kids = decl.named_children();
+    let name = kids
+        .iter()
+        .find(|c| c.kind() == Kind::Identifier)?
+        .text()
+        .to_string();
+    let float_anno = kids
+        .iter()
+        .any(|c| c.kind() == Kind::TypeAnnotation && c.text().contains("Float"));
+    // The only `Number` directly under a LocalDeclaration is its initializer.
+    let float_init = kids.iter().any(is_float_literal);
+    (float_anno || float_init).then_some(name)
+}
+
 impl Rule for FloatEqComparison {
     fn code(&self) -> LintCode {
         LintCode::L006
@@ -58,6 +78,53 @@ impl Rule for FloatEqComparison {
                 Severity::Error,
                 "never compare floats with equality operators; use a tolerance check",
             ));
+        }
+    }
+
+    /// File-scope pass that extends L006 to float-typed *locals* (#88). The
+    /// per-node pass only sees float *literals*; here we first collect the locals
+    /// declared float (annotation or float-literal init), then flag equality
+    /// comparisons against them. Comparisons that already contain a float literal
+    /// are left to `check_node` so each is reported exactly once.
+    fn check_file(&self, source: &str, _lines: &[&str], diags: &mut Vec<LintDiagnostic>) {
+        let cst = m1_core::parse(source);
+        let root = cst.root();
+        let mut float_locals = std::collections::HashSet::new();
+        for n in root.descendants() {
+            if n.kind() == Kind::LocalDeclaration
+                && let Some(name) = float_local_name(&n)
+            {
+                float_locals.insert(name);
+            }
+        }
+        if float_locals.is_empty() {
+            return;
+        }
+        for n in root.descendants() {
+            if n.kind() != Kind::BinaryExpression {
+                continue;
+            }
+            let children = n.children();
+            if !children.iter().any(|c| is_eq_op(c.kind())) {
+                continue;
+            }
+            // `check_node` already reports a comparison that has a float literal.
+            if children.iter().any(is_float_literal) {
+                continue;
+            }
+            let touches_float_local = n
+                .named_children()
+                .iter()
+                .any(|c| c.kind() == Kind::Identifier && float_locals.contains(c.text()));
+            if touches_float_local {
+                diags.push(LintDiagnostic::new(
+                    LintCode::L006,
+                    n.range(),
+                    n.byte_range(),
+                    Severity::Error,
+                    "never compare floats with equality operators; use a tolerance check",
+                ));
+            }
         }
     }
 }
@@ -107,5 +174,51 @@ mod tests {
         let source = "x = a eq b;\n";
         let result = runner().run_source(source);
         assert!(result.diagnostics.iter().all(|d| d.code != LintCode::L006));
+    }
+
+    #[test]
+    fn flags_local_initialized_from_float_literal() {
+        // #88: a local whose initializer is a float literal is float-typed; an
+        // equality comparison against it is the same bug as a bare float literal.
+        let source = "local threshold = 1.5;\nx = speed eq threshold;\n";
+        let result = runner().run_source(source);
+        assert!(
+            result.diagnostics.iter().any(|d| d.code == LintCode::L006),
+            "comparison against a float-literal-initialized local should flag: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn flags_local_with_float_type_annotation() {
+        let source = "local <Float> speed = 0.0;\nx = speed eq limit;\n";
+        let result = runner().run_source(source);
+        assert!(result.diagnostics.iter().any(|d| d.code == LintCode::L006));
+    }
+
+    #[test]
+    fn no_false_positive_integer_local() {
+        // An integer-initialized local compared with an int literal must not flag.
+        let source = "local count = 1;\nx = count eq 2;\n";
+        let result = runner().run_source(source);
+        assert!(result.diagnostics.iter().all(|d| d.code != LintCode::L006));
+    }
+
+    #[test]
+    fn float_local_comparison_flagged_exactly_once() {
+        // A float literal *and* a float local in the same comparison must produce
+        // only one L006 (the check_node + check_file passes must not double-count).
+        let source = "local t = 1.5;\nx = t eq 2.0;\n";
+        let result = runner().run_source(source);
+        assert_eq!(
+            result
+                .diagnostics
+                .iter()
+                .filter(|d| d.code == LintCode::L006)
+                .count(),
+            1,
+            "exactly one L006: {:?}",
+            result.diagnostics
+        );
     }
 }
