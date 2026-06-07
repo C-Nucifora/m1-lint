@@ -39,12 +39,18 @@ impl Rule for Indentation {
         // Track whether each line *starts* inside a `/* … */` block comment; the
         // ` * …` continuation indentation there is comment layout, not code.
         let mut in_block_comment = false;
+        // Track the open `(`/`[` depth entering each line. A line that begins while
+        // a bracket is still open is a *continuation*: its leading whitespace is
+        // alignment under the open paren, not block indentation, so the
+        // indent-character check would be a false positive there (#86).
+        let mut bracket_depth: i32 = 0;
         for (line_idx, line) in lines.iter().enumerate() {
             let starts_in_comment = in_block_comment;
-            update_block_comment_state(line, &mut in_block_comment);
-            // Skip blank / whitespace-only lines (L002's job) and block-comment
-            // interior lines.
-            if !starts_in_comment && !line.trim().is_empty() {
+            let is_continuation = bracket_depth > 0;
+            scan_line(line, &mut in_block_comment, &mut bracket_depth);
+            // Skip blank / whitespace-only lines (L002's job), block-comment
+            // interior lines, and open-paren continuation lines.
+            if !starts_in_comment && !is_continuation && !line.trim().is_empty() {
                 let indent_len = line.len() - line.trim_start().len();
                 let indent = &line[..indent_len];
                 // Judge only the indentation character (the first one): tabs +
@@ -72,25 +78,49 @@ impl Rule for Indentation {
     }
 }
 
-/// Advance `in_block` across one line by scanning for `/*` and `*/` (ignoring
-/// `//` line comments, which can't open a block). Good enough for the well-formed
-/// comments the parser already accepts.
-fn update_block_comment_state(line: &str, in_block: &mut bool) {
-    let bytes = line.as_bytes();
+/// Scan one line, advancing the `/* … */` block-comment state across lines and
+/// the running `(`/`[` bracket `depth`. Brackets inside strings, `//` line
+/// comments, and block comments are ignored, so they can't spuriously open or
+/// close a continuation. Strings are treated as single-line (the M1 grammar does
+/// not allow them to span lines), so the in-string state is local to the line.
+fn scan_line(line: &str, in_block: &mut bool, depth: &mut i32) {
+    let b = line.as_bytes();
     let mut i = 0;
-    while i + 1 < bytes.len() {
+    let mut in_string = false;
+    while i < b.len() {
         if *in_block {
-            if bytes[i] == b'*' && bytes[i + 1] == b'/' {
+            if i + 1 < b.len() && b[i] == b'*' && b[i + 1] == b'/' {
                 *in_block = false;
                 i += 2;
                 continue;
             }
-        } else if bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            i += 1;
+            continue;
+        }
+        if in_string {
+            match b[i] {
+                b'\\' => i += 2, // skip an escaped character
+                b'"' => {
+                    in_string = false;
+                    i += 1;
+                }
+                _ => i += 1,
+            }
+            continue;
+        }
+        if i + 1 < b.len() && b[i] == b'/' && b[i + 1] == b'*' {
             *in_block = true;
             i += 2;
             continue;
-        } else if bytes[i] == b'/' && bytes[i + 1] == b'/' {
-            return; // rest of line is a line comment
+        }
+        if i + 1 < b.len() && b[i] == b'/' && b[i + 1] == b'/' {
+            return; // rest of the line is a line comment
+        }
+        match b[i] {
+            b'"' => in_string = true,
+            b'(' | b'[' => *depth += 1,
+            b')' | b']' => *depth = (*depth - 1).max(0),
+            _ => {}
         }
         i += 1;
     }
@@ -139,6 +169,53 @@ mod tests {
         // continuation-line idiom — is fine under the default tab style.
         let result = runner(IndentStyle::Tab).run_source("\t\tfoo and\n\t\t    bar;\n");
         assert!(result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn space_aligned_continuation_under_open_paren_is_not_flagged() {
+        // #86: line 2 uses spaces to align the continuation under the open `(`.
+        // Those spaces are alignment, not block indentation, so under the tab
+        // style they must NOT be flagged — replacing them with tabs would break
+        // the alignment.
+        let src =
+            "if (Demo.Count > 100 and\n    Demo.Mode eq Color.Red)\n{\n\tDemo.Result = 1;\n}\n";
+        let result = runner(IndentStyle::Tab).run_source(src);
+        assert!(
+            result.diagnostics.is_empty(),
+            "alignment-space continuation wrongly flagged: {:#?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn space_indentation_after_paren_closes_is_still_flagged() {
+        // Once the `(` is closed, a space-indented body line is real (wrong)
+        // indentation and must still be flagged — the continuation exemption
+        // applies only while a paren is open.
+        let src = "if (a)\n{\n    x = 1;\n}\n";
+        let result = runner(IndentStyle::Tab).run_source(src);
+        assert_eq!(
+            result.diagnostics.len(),
+            1,
+            "got: {:#?}",
+            result.diagnostics
+        );
+        assert_eq!(result.diagnostics[0].inner.range.start.line, 2);
+    }
+
+    #[test]
+    fn paren_in_string_or_comment_does_not_open_a_continuation() {
+        // A `(` inside a string or `//` comment must not be counted as opening a
+        // continuation, or the following space-indented body would be wrongly
+        // exempted.
+        let src = "x = \"(\";\n    y = 1;\n";
+        let result = runner(IndentStyle::Tab).run_source(src);
+        assert_eq!(
+            result.diagnostics.len(),
+            1,
+            "space-indented line after a string-paren should still flag: {:#?}",
+            result.diagnostics
+        );
     }
 
     #[test]
