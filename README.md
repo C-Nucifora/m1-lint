@@ -106,6 +106,9 @@ script's semantic tokens. Rule selection and thresholds can be configured via a
 `.m1lint.toml` discovered upward from the input file (or passed explicitly), with
 `select`/`ignore` lists and per-rule thresholds. `indent-style` chooses the
 indentation L010 enforces — `"tab"` (default, per the M1 manual) or `"spaces"`.
+Keys may be written kebab-case (`max-line-length`) or snake_case
+(`max_line_length`), so the unified `m1-tools.toml` / `m1-lsp --scaffold-config`
+output can be used directly as a `.m1lint.toml`.
 
 ## Build & test
 
