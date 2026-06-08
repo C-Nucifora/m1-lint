@@ -1,7 +1,6 @@
 //! Rule registry — collects all active rules.
 
 use crate::config::Config;
-use crate::diagnostic::LintCode;
 use crate::rules::Rule;
 
 /// Holds all registered lint rules.
@@ -27,60 +26,14 @@ impl Registry {
 
     /// Build a registry containing exactly the rules enabled by `cfg`, with
     /// the configured thresholds.
+    ///
+    /// The per-code construction lives on `LintCode::build_rule` — the single
+    /// source of truth generated alongside the enum itself — so this no longer
+    /// carries a parallel match that has to stay in lock-step with the enum.
     pub fn from_config(cfg: &Config) -> Self {
-        use crate::rules::*;
         let mut r = Self::empty();
         for code in &cfg.enabled {
-            match code {
-                LintCode::L001 => r.register(Box::new(l001_line_too_long::LineTooLong {
-                    max_len: cfg.max_line_length,
-                })),
-                LintCode::L002 => {
-                    r.register(Box::new(l002_trailing_whitespace::TrailingWhitespace))
-                }
-                LintCode::L003 => {
-                    r.register(Box::new(l003_missing_final_newline::MissingFinalNewline))
-                }
-                LintCode::L004 => {
-                    r.register(Box::new(l004_eq_operator_preferred::EqOperatorPreferred))
-                }
-                LintCode::L005 => r.register(Box::new(
-                    l005_logical_operator_preferred::LogicalOperatorPreferred,
-                )),
-                LintCode::L006 => r.register(Box::new(l006_float_eq_comparison::FloatEqComparison)),
-                LintCode::L007 => r.register(Box::new(l007_operator_spacing::OperatorSpacing)),
-                LintCode::L008 => r.register(Box::new(l008_nesting_too_deep::NestingTooDeep {
-                    max_depth: cfg.max_nesting_depth,
-                })),
-                LintCode::L009 => {
-                    r.register(Box::new(l009_cyclomatic_complexity::CyclomaticComplexity {
-                        max_complexity: cfg.max_complexity,
-                    }))
-                }
-                LintCode::L010 => r.register(Box::new(l010_tab_indentation::Indentation {
-                    style: cfg.indent_style,
-                })),
-                LintCode::L011 => r.register(Box::new(l011_comment_style::CommentStyle {
-                    max_line_length: cfg.max_line_length,
-                })),
-                LintCode::L012 => r.register(Box::new(l012_unused_local::UnusedLocal)),
-                LintCode::L014 => r.register(Box::new(
-                    l014_expand_undefined_variable::ExpandUndefinedVariable,
-                )),
-                LintCode::L015 => r.register(Box::new(
-                    l015_local_missing_initializer::LocalMissingInitializer,
-                )),
-                LintCode::L016 => {
-                    r.register(Box::new(l016_local_variable_naming::LocalVariableNaming))
-                }
-                LintCode::L017 => r.register(Box::new(l017_magic_number::MagicNumber)),
-                LintCode::L018 => r.register(Box::new(l018_semicolon_spacing::SemicolonSpacing)),
-                LintCode::L019 => {
-                    r.register(Box::new(l019_cognitive_complexity::CognitiveComplexity {
-                        max_complexity: cfg.max_cognitive_complexity,
-                    }))
-                }
-            }
+            r.register(code.build_rule(cfg));
         }
         r
     }
@@ -98,6 +51,7 @@ impl Default for Registry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagnostic::LintCode;
 
     #[test]
     fn empty_registry_has_no_rules() {
