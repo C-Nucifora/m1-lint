@@ -52,22 +52,31 @@ impl Rule for UnusedLocal {
 
 /// Walk the tree once: record each `local_declaration`'s name node as a
 /// declaration, and every other identifier's text as a use.
+///
+/// Iterative (explicit stack) rather than recursive: a deeply nested expression
+/// such as `1+1+…+1` parses to a long BinaryExpression chain, and a recursive
+/// descent would overflow the native stack and abort the process. Visiting every
+/// node via an explicit stack collects the same declarations and uses at any
+/// depth (collection order is irrelevant — both outputs are sets/lists).
 fn collect<'a>(node: Node<'a>, decls: &mut Vec<Node<'a>>, used: &mut HashSet<String>) {
-    let decl_name = (node.kind() == Kind::LocalDeclaration)
-        .then(|| node.child_by_field(Field::Name))
-        .flatten();
-    if let Some(n) = decl_name {
-        decls.push(n);
-    }
-    for child in node.children() {
-        if child.kind() == Kind::Identifier {
-            // The declaration's own name node is a definition, not a use.
-            let is_decl_name = decl_name.is_some_and(|d| d.byte_range() == child.byte_range());
-            if !is_decl_name {
-                used.insert(child.text().to_string());
-            }
+    let mut stack: Vec<Node<'a>> = vec![node];
+    while let Some(node) = stack.pop() {
+        let decl_name = (node.kind() == Kind::LocalDeclaration)
+            .then(|| node.child_by_field(Field::Name))
+            .flatten();
+        if let Some(n) = decl_name {
+            decls.push(n);
         }
-        collect(child, decls, used);
+        for child in node.children() {
+            if child.kind() == Kind::Identifier {
+                // The declaration's own name node is a definition, not a use.
+                let is_decl_name = decl_name.is_some_and(|d| d.byte_range() == child.byte_range());
+                if !is_decl_name {
+                    used.insert(child.text().to_string());
+                }
+            }
+            stack.push(child);
+        }
     }
 }
 

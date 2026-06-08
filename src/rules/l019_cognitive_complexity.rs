@@ -43,78 +43,89 @@ fn cognitive_complexity(scope: &Node) -> u32 {
     total
 }
 
-/// Walk `node` at the given `nesting` level, accumulating cognitive complexity.
+/// Visit `node` at the given `nesting` level, accumulating cognitive complexity.
+///
+/// Iterative (an explicit work-stack of `(node, nesting)` items) rather than
+/// recursive: a deeply nested expression such as `1+1+…+1` parses to a long
+/// BinaryExpression chain (it lands in the catch-all arm), and a recursive
+/// descent would overflow the native stack and abort the process. The explicit
+/// stack reproduces the recursive scoring exactly — each child is pushed with
+/// the nesting level the recursive version would have passed it. Visit order
+/// does not affect the accumulated total.
 fn visit(node: &Node, nesting: u32, total: &mut u32) {
-    let kind = node.kind();
+    let mut stack: Vec<(Node, u32)> = vec![(*node, nesting)];
+    while let Some((node, nesting)) = stack.pop() {
+        let kind = node.kind();
 
-    if is_boolean_operator(kind) {
-        *total += 1;
-        for child in node.children() {
-            visit(&child, nesting, total);
-        }
-        return;
-    }
-
-    match kind {
-        // A nested scope (a `when` inside this one) is checked on its own.
-        Kind::WhenStatement => {}
-
-        Kind::IfStatement => {
-            // `else if` is an if_statement whose parent is an else_clause: it is a
-            // continuation (flat +1), not a deeper nesting level.
-            let is_else_if = node.parent().is_some_and(|p| p.kind() == Kind::ElseClause);
-            *total += if is_else_if { 1 } else { 1 + nesting };
-
-            for child in node.children() {
-                match child.kind() {
-                    // The body is one level deeper.
-                    Kind::Block => visit_children(&child, nesting + 1, total),
-                    // The else/else-if branch stays at this level.
-                    Kind::ElseClause => visit(&child, nesting, total),
-                    // The condition (and its boolean operators) is scored flat.
-                    _ => visit(&child, nesting, total),
-                }
-            }
-        }
-
-        Kind::ElseClause => {
-            for child in node.children() {
-                match child.kind() {
-                    // `else { ... }` — a flat +1, body one level deeper.
-                    Kind::Block => {
-                        *total += 1;
-                        visit_children(&child, nesting + 1, total);
-                    }
-                    // `else if (...)` — handled by the IfStatement arm (flat +1).
-                    Kind::IfStatement => visit(&child, nesting, total),
-                    _ => visit(&child, nesting, total),
-                }
-            }
-        }
-
-        Kind::IsClause => {
-            // A `when ... is` arm: a flat +1, body one level deeper.
+        if is_boolean_operator(kind) {
             *total += 1;
             for child in node.children() {
-                if child.kind() == Kind::Block {
-                    visit_children(&child, nesting + 1, total);
-                } else {
-                    visit(&child, nesting, total);
-                }
+                stack.push((child, nesting));
             }
+            continue;
         }
 
-        _ => {
-            for child in node.children() {
-                visit(&child, nesting, total);
+        match kind {
+            // A nested scope (a `when` inside this one) is checked on its own.
+            Kind::WhenStatement => {}
+
+            Kind::IfStatement => {
+                // `else if` is an if_statement whose parent is an else_clause: it
+                // is a continuation (flat +1), not a deeper nesting level.
+                let is_else_if = node.parent().is_some_and(|p| p.kind() == Kind::ElseClause);
+                *total += if is_else_if { 1 } else { 1 + nesting };
+
+                for child in node.children() {
+                    match child.kind() {
+                        // The body is one level deeper.
+                        Kind::Block => push_children(&child, nesting + 1, &mut stack),
+                        // The else/else-if branch stays at this level.
+                        Kind::ElseClause => stack.push((child, nesting)),
+                        // The condition (and its boolean operators) is flat.
+                        _ => stack.push((child, nesting)),
+                    }
+                }
+            }
+
+            Kind::ElseClause => {
+                for child in node.children() {
+                    match child.kind() {
+                        // `else { ... }` — a flat +1, body one level deeper.
+                        Kind::Block => {
+                            *total += 1;
+                            push_children(&child, nesting + 1, &mut stack);
+                        }
+                        // `else if (...)` — handled by the IfStatement arm.
+                        Kind::IfStatement => stack.push((child, nesting)),
+                        _ => stack.push((child, nesting)),
+                    }
+                }
+            }
+
+            Kind::IsClause => {
+                // A `when ... is` arm: a flat +1, body one level deeper.
+                *total += 1;
+                for child in node.children() {
+                    if child.kind() == Kind::Block {
+                        push_children(&child, nesting + 1, &mut stack);
+                    } else {
+                        stack.push((child, nesting));
+                    }
+                }
+            }
+
+            _ => {
+                for child in node.children() {
+                    stack.push((child, nesting));
+                }
             }
         }
     }
 }
 
-fn visit_children(node: &Node, nesting: u32, total: &mut u32) {
+fn push_children<'a>(node: &Node<'a>, nesting: u32, stack: &mut Vec<(Node<'a>, u32)>) {
     for child in node.children() {
-        visit(&child, nesting, total);
+        stack.push((child, nesting));
     }
 }
 
