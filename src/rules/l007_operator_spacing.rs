@@ -104,11 +104,15 @@ impl Rule for OperatorSpacing {
     }
 
     fn check_node(&self, node: &Node, source: &str, diags: &mut Vec<LintDiagnostic>) {
-        // Operators appear as direct children of binary expressions and
-        // assignment statements.
+        // The checked operators appear as direct children of binary
+        // expressions, assignment statements, and `local` declarations: a
+        // `local x = 1;` initializer's `=` (Kind::Assign) is a direct child of
+        // Kind::LocalDeclaration, exactly like AssignmentStatement. Without
+        // LocalDeclaration here L007 misses `local x=1;`, so L007-clean code was
+        // not fmt-stable (m1-fmt spaces it) and `--fix` left it glued.
         if !matches!(
             node.kind(),
-            Kind::BinaryExpression | Kind::AssignmentStatement
+            Kind::BinaryExpression | Kind::AssignmentStatement | Kind::LocalDeclaration
         ) {
             return;
         }
@@ -133,9 +137,11 @@ impl Rule for OperatorSpacing {
     }
 
     fn fix_node(&self, node: &m1_core::Node, source: &str, edits: &mut Vec<crate::fix::Edit>) {
+        // Same node kinds as `check_node` — including LocalDeclaration so the
+        // `local x=1;` initializer `=` is spaced (kept in lock-step with m1-fmt).
         if !matches!(
             node.kind(),
-            Kind::BinaryExpression | Kind::AssignmentStatement
+            Kind::BinaryExpression | Kind::AssignmentStatement | Kind::LocalDeclaration
         ) {
             return;
         }
@@ -313,6 +319,61 @@ mod tests {
         assert!(
             result.diagnostics.iter().any(|d| d.code == LintCode::L007),
             "line-leading operator glued to its right operand must still flag (missing space after)"
+        );
+    }
+
+    #[test]
+    fn flags_local_declaration_assignment() {
+        // The `=` in a `local` declaration initializer is a direct child of
+        // LocalDeclaration; L007 must flag it when unspaced, exactly like an
+        // ordinary assignment statement.
+        let result = runner().run_source("local x=1;\n");
+        assert!(
+            result.diagnostics.iter().any(|d| d.code == LintCode::L007),
+            "L007 should flag `local x=1;`"
+        );
+    }
+
+    #[test]
+    fn flags_typed_local_declaration_assignment() {
+        // A type-annotated local: `local <Integer> x=1;`. The `<Integer>` lives
+        // in a TypeAnnotation child (its `<`/`>` are NOT direct children of the
+        // LocalDeclaration), so only the initializer `=` is flagged.
+        let result = runner().run_source("local <Integer> x=1;\n");
+        assert!(
+            result.diagnostics.iter().any(|d| d.code == LintCode::L007),
+            "L007 should flag `local <Integer> x=1;`"
+        );
+    }
+
+    #[test]
+    fn no_diagnostic_on_spaced_local_declaration() {
+        // Correctly spaced local declarations must not be flagged.
+        for src in ["local x = 1;\n", "local <Integer> x = 1;\n"] {
+            let result = runner().run_source(src);
+            assert!(
+                result.diagnostics.iter().all(|d| d.code != LintCode::L007),
+                "L007 must not fire on correctly spaced {src:?}, got {:?}",
+                result.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn fixes_local_declaration_assignment() {
+        let mut r = Registry::empty();
+        r.register(Box::new(OperatorSpacing));
+        let fixer = crate::fix::Fixer::new(&r);
+        assert_eq!(
+            fixer.fix_source("local x=1;\n").unwrap().as_deref(),
+            Some("local x = 1;\n")
+        );
+        assert_eq!(
+            fixer
+                .fix_source("local <Integer> x=1;\n")
+                .unwrap()
+                .as_deref(),
+            Some("local <Integer> x = 1;\n")
         );
     }
 

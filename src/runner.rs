@@ -124,12 +124,24 @@ impl Runner {
         }
     }
 
-    fn walk(&self, node: &Node, source: &str, diags: &mut Vec<LintDiagnostic>) {
-        for rule in self.registry.rules() {
-            rule.check_node(node, source, diags);
-        }
-        for child in node.children() {
-            self.walk(&child, source, diags);
+    /// Pre-order traversal of the CST, running every rule's `check_node` on each
+    /// node. This is **iterative** (an explicit stack) rather than recursive: a
+    /// long left-associative expression such as `1+1+…+1` parses to a deeply
+    /// nested `BinaryExpression` chain, and a recursive walk would overflow the
+    /// native stack and abort the process (SIGABRT) — a crash/DoS even for
+    /// line-only rules, since the runner always walks. An explicit stack keeps
+    /// full rule coverage at any nesting depth with no overflow.
+    fn walk(&self, root: &Node, source: &str, diags: &mut Vec<LintDiagnostic>) {
+        let rules = self.registry.rules();
+        let mut stack: Vec<Node> = vec![*root];
+        while let Some(node) = stack.pop() {
+            for rule in rules {
+                rule.check_node(&node, source, diags);
+            }
+            // Push children in reverse so they pop in source (left-to-right)
+            // order, preserving the original pre-order visit sequence.
+            let children = node.children();
+            stack.extend(children.into_iter().rev());
         }
     }
 }
@@ -201,6 +213,20 @@ mod tests {
         let runner = Runner::new(Registry::empty());
         let result = runner.run_source("");
         assert!(result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn deeply_nested_expression_does_not_overflow_stack() {
+        // A long left-associative `1+1+…+1` parses into a deeply nested
+        // BinaryExpression chain. A recursive CST walk overflows the native
+        // stack and aborts the process (SIGABRT); the iterative walk must
+        // return normally at any depth, even for line-only rules. Regression
+        // for the stack-overflow crash/DoS.
+        let runner = Runner::new(Registry::default());
+        let source = format!("Out = {}1;\n", "1+".repeat(50_000));
+        let result = runner.run_source(&source);
+        // It returns without panicking; the exact diagnostics are irrelevant.
+        let _ = result.diagnostics.len();
     }
 
     #[test]

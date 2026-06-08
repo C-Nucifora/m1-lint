@@ -40,8 +40,14 @@ fn count_complexity(scope: &Node) -> u32 {
 
 /// Count decision points among `node`'s descendants, without descending into
 /// nested scopes (which get their own complexity check).
+///
+/// Iterative (explicit stack) rather than recursive: a deeply nested expression
+/// such as `1+1+…+1` parses to a long BinaryExpression chain, and a recursive
+/// descent from the `SourceFile` scope would overflow the native stack and abort
+/// the process. An explicit stack counts the same decision points at any depth.
 fn count_children(node: &Node, count: &mut u32) {
-    for child in node.children() {
+    let mut stack: Vec<Node> = node.children();
+    while let Some(child) = stack.pop() {
         if is_decision_point(child.kind()) {
             *count += 1;
         }
@@ -49,7 +55,7 @@ fn count_children(node: &Node, count: &mut u32) {
             // A nested scope is checked independently; do not descend.
             continue;
         }
-        count_children(&child, count);
+        stack.extend(child.children());
     }
 }
 
