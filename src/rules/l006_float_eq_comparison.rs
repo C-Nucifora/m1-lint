@@ -14,13 +14,19 @@ pub struct FloatEqComparison;
 /// Returns true if the node is a float literal.
 ///
 /// Float notation is detected by the presence of a `.` or an exponent marker
-/// (`e`/`E`). Hexadecimal literals (`0x..`) contain neither and so are treated
-/// as integers, which is the desired behaviour.
+/// (`e`/`E`). Hexadecimal literals (`0x..`) are always integers and must be
+/// excluded first: their digits include `e`/`E`/`f` (e.g. `0xE5`, `0xBEEF`,
+/// `0xFACE`), which would otherwise be misread as an exponent marker and flag a
+/// plain integer comparison as a float one.
 fn is_float_literal(node: &Node) -> bool {
     if node.kind() != Kind::Number {
         return false;
     }
     let text = node.text();
+    // A hex literal is an integer regardless of which hex digits it contains.
+    if text.starts_with("0x") || text.starts_with("0X") {
+        return false;
+    }
     text.contains('.') || text.to_ascii_lowercase().contains('e')
 }
 
@@ -175,6 +181,37 @@ mod tests {
         let source = "x = a == 1;\n";
         let result = runner().run_source(source);
         assert!(result.diagnostics.iter().all(|d| d.code != LintCode::L006));
+    }
+
+    #[test]
+    fn no_false_positive_hex_literal_with_e() {
+        // A hex literal whose digits include `e`/`E`/`f` (e.g. `0xE5`, `0xBEEF`,
+        // `0xFACE`) is an *integer*, not a float — the `e` is a hex digit, not an
+        // exponent marker. Equality comparison against it must NOT be flagged.
+        for lit in ["0xE5", "0xBEEF", "0xFACE", "0xface", "0x1e", "0xDEAD"] {
+            let source = format!("x = mask == {lit};\n");
+            let result = runner().run_source(&source);
+            assert!(
+                result.diagnostics.iter().all(|d| d.code != LintCode::L006),
+                "hex literal {lit} must not be treated as a float: {:?}",
+                result.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn still_flags_decimal_exponent_float() {
+        // A genuine exponent-notation float (`1e3`, `2.5E-2`) is still a float and
+        // must remain flagged — the hex fix must not weaken real-float detection.
+        for lit in ["1e3", "2.5E-2", "1.0", "0.5"] {
+            let source = format!("x = a == {lit};\n");
+            let result = runner().run_source(&source);
+            assert!(
+                result.diagnostics.iter().any(|d| d.code == LintCode::L006),
+                "float literal {lit} should be flagged: {:?}",
+                result.diagnostics
+            );
+        }
     }
 
     #[test]
