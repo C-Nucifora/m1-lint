@@ -265,8 +265,8 @@ checksum = "953f07c43838f8e6f9758cab68bf5bed85465e7587ebe0b823f1bcd81978ad3a"
 
 [[package]]
 name = "m1-core"
-version = "0.7.0"
-source = "git+https://github.com/C-Nucifora/m1-core.git?tag=v0.7.0#e25623d28bf70f26170995b97dac83d71ecd5cea"
+version = "0.7.1"
+source = "git+https://github.com/C-Nucifora/m1-core.git?tag=v0.7.1#3bc1525db45529b1cf380393366973bcf15b19d3"
 dependencies = [
  "tree-sitter",
  "tree-sitter-m1",
@@ -286,8 +286,8 @@ dependencies = [
 
 [[package]]
 name = "m1-workspace"
-version = "0.5.0"
-source = "git+https://github.com/nedlane/m1-workspace.git?tag=v0.5.0#8cfcd9eece5518d66bac489bf90e16998108ff45"
+version = "0.5.1"
+source = "git+https://github.com/nedlane/m1-workspace.git?tag=v0.5.1#d6e937c0ed495503cbb03985596196183426f7b0"
 dependencies = [
  "serde",
  "toml 0.8.23",
