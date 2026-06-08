@@ -3,134 +3,159 @@
 use m1_core::{Diagnostic, Range, Severity};
 use std::fmt;
 
-/// A lint rule code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum LintCode {
-    /// L001 — line-too-long
-    L001,
-    /// L002 — trailing-whitespace
-    L002,
-    /// L003 — missing-final-newline
-    L003,
-    /// L004 — eq-operator-preferred
-    L004,
-    /// L005 — logical-operator-preferred
-    L005,
-    /// L006 — float-eq-comparison
-    L006,
-    /// L007 — operator-spacing
-    L007,
-    /// L008 — nesting-too-deep
-    L008,
-    /// L009 — cyclomatic-complexity
-    L009,
-    /// L010 — tab-for-indentation
-    L010,
-    /// L011 — comment-style
-    L011,
-    /// L012 — unused-local
-    L012,
-    /// L014 — expand-undefined-variable (L013 is reserved for the DBC-range rule)
-    L014,
-    /// L015 — local-missing-initializer
-    L015,
-    /// L016 — local-variable-naming
-    L016,
-    /// L017 — magic-number
-    L017,
-    /// L018 — semicolon-spacing
-    L018,
-    /// L019 — cognitive-complexity
-    L019,
+use crate::config::Config;
+use crate::rules::Rule;
+
+/// The single source of truth for the lint rule set.
+///
+/// Each entry binds a [`LintCode`] variant to everything that varies per rule —
+/// its stable name, its fixability and default-on flags, and how to construct
+/// the boxed [`Rule`] from a [`Config`]. The macro derives the `LintCode` enum,
+/// its `Display`/[`LintCode::name`]/[`LintCode::all_codes`]/[`LintCode::fixable`]/
+/// [`LintCode::off_by_default`] surface, *and* [`LintCode::build_rule`] (used by
+/// [`Registry::from_config`][crate::registry::Registry::from_config]) from one
+/// place, so adding a rule is a single new entry rather than ~5 lock-step edits
+/// scattered across files.
+///
+/// Entry grammar: `Variant => name, fixable, off_by_default, |cfg| <Rule expr>`.
+macro_rules! define_rules {
+    (
+        $(
+            $(#[$meta:meta])*
+            $variant:ident => $name:literal, $fixable:literal, $off:literal, |$cfg:ident| $build:expr
+        ),+ $(,)?
+    ) => {
+        /// A lint rule code.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub enum LintCode {
+            $(
+                $(#[$meta])*
+                $variant,
+            )+
+        }
+
+        impl fmt::Display for LintCode {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    $( LintCode::$variant => write!(f, stringify!($variant)), )+
+                }
+            }
+        }
+
+        impl LintCode {
+            /// Every lint code, in numeric order.
+            pub fn all_codes() -> &'static [LintCode] {
+                &[ $( LintCode::$variant, )+ ]
+            }
+
+            /// Stable human-readable rule name.
+            pub fn name(&self) -> &'static str {
+                match self {
+                    $( LintCode::$variant => $name, )+
+                }
+            }
+
+            /// Whether `m1-lint --fix` can mechanically fix this rule's diagnostics.
+            pub fn fixable(&self) -> bool {
+                match self {
+                    $( LintCode::$variant => $fixable, )+
+                }
+            }
+
+            /// Whether this rule is *off by default* (still selectable via
+            /// `--select` or `.m1lint.toml`). L017 (magic-number) is
+            /// manual-recommended but fires very often on real scaling/threshold
+            /// code, so it ships opt-in to avoid drowning the default output.
+            pub fn off_by_default(&self) -> bool {
+                match self {
+                    $( LintCode::$variant => $off, )+
+                }
+            }
+
+            /// Construct the boxed [`Rule`] for this code, applying the
+            /// configured thresholds from `cfg`. This is the construction half of
+            /// the single source of truth consumed by
+            /// [`Registry::from_config`][crate::registry::Registry::from_config].
+            pub(crate) fn build_rule(&self, cfg: &Config) -> Box<dyn Rule> {
+                use crate::rules::*;
+                match self {
+                    $(
+                        LintCode::$variant => {
+                            #[allow(unused_variables)]
+                            let $cfg = cfg;
+                            Box::new($build)
+                        }
+                    )+
+                }
+            }
+        }
+    };
 }
 
-impl fmt::Display for LintCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LintCode::L001 => write!(f, "L001"),
-            LintCode::L002 => write!(f, "L002"),
-            LintCode::L003 => write!(f, "L003"),
-            LintCode::L004 => write!(f, "L004"),
-            LintCode::L005 => write!(f, "L005"),
-            LintCode::L006 => write!(f, "L006"),
-            LintCode::L007 => write!(f, "L007"),
-            LintCode::L008 => write!(f, "L008"),
-            LintCode::L009 => write!(f, "L009"),
-            LintCode::L010 => write!(f, "L010"),
-            LintCode::L011 => write!(f, "L011"),
-            LintCode::L012 => write!(f, "L012"),
-            LintCode::L014 => write!(f, "L014"),
-            LintCode::L015 => write!(f, "L015"),
-            LintCode::L016 => write!(f, "L016"),
-            LintCode::L017 => write!(f, "L017"),
-            LintCode::L018 => write!(f, "L018"),
-            LintCode::L019 => write!(f, "L019"),
-        }
-    }
+define_rules! {
+    /// L001 — line-too-long
+    L001 => "line-too-long", false, false,
+        |cfg| l001_line_too_long::LineTooLong { max_len: cfg.max_line_length },
+    /// L002 — trailing-whitespace
+    L002 => "trailing-whitespace", true, false,
+        |cfg| l002_trailing_whitespace::TrailingWhitespace,
+    /// L003 — missing-final-newline
+    L003 => "missing-final-newline", true, false,
+        |cfg| l003_missing_final_newline::MissingFinalNewline,
+    /// L004 — eq-operator-preferred
+    L004 => "eq-operator-preferred", true, false,
+        |cfg| l004_eq_operator_preferred::EqOperatorPreferred,
+    /// L005 — logical-operator-preferred
+    L005 => "logical-operator-preferred", true, false,
+        |cfg| l005_logical_operator_preferred::LogicalOperatorPreferred,
+    /// L006 — float-eq-comparison
+    L006 => "float-eq-comparison", false, false,
+        |cfg| l006_float_eq_comparison::FloatEqComparison,
+    /// L007 — operator-spacing
+    L007 => "operator-spacing", true, false,
+        |cfg| l007_operator_spacing::OperatorSpacing,
+    /// L008 — nesting-too-deep
+    L008 => "nesting-too-deep", false, false,
+        |cfg| l008_nesting_too_deep::NestingTooDeep { max_depth: cfg.max_nesting_depth },
+    /// L009 — cyclomatic-complexity
+    L009 => "cyclomatic-complexity", false, false,
+        |cfg| l009_cyclomatic_complexity::CyclomaticComplexity { max_complexity: cfg.max_complexity },
+    /// L010 — indentation-style (L010 is historically "tab-for-indentation")
+    L010 => "indentation-style", false, false,
+        |cfg| l010_tab_indentation::Indentation { style: cfg.indent_style },
+    /// L011 — comment-style
+    L011 => "comment-style", true, false,
+        |cfg| l011_comment_style::CommentStyle { max_line_length: cfg.max_line_length },
+    /// L012 — unused-local
+    L012 => "unused-local", false, false,
+        |cfg| l012_unused_local::UnusedLocal,
+    /// L014 — expand-undefined-variable (L013 is reserved for the DBC-range rule)
+    L014 => "expand-undefined-variable", false, false,
+        |cfg| l014_expand_undefined_variable::ExpandUndefinedVariable,
+    /// L015 — local-missing-initializer
+    L015 => "local-missing-initializer", false, false,
+        |cfg| l015_local_missing_initializer::LocalMissingInitializer,
+    /// L016 — local-variable-naming
+    L016 => "local-variable-naming", false, false,
+        |cfg| l016_local_variable_naming::LocalVariableNaming,
+    /// L017 — magic-number
+    L017 => "magic-number", false, true,
+        |cfg| l017_magic_number::MagicNumber,
+    /// L018 — semicolon-spacing
+    L018 => "semicolon-spacing", true, false,
+        |cfg| l018_semicolon_spacing::SemicolonSpacing,
+    /// L019 — cognitive-complexity
+    L019 => "cognitive-complexity", false, false,
+        |cfg| l019_cognitive_complexity::CognitiveComplexity { max_complexity: cfg.max_cognitive_complexity },
 }
 
 impl LintCode {
-    /// Every lint code, in numeric order.
-    pub fn all_codes() -> &'static [LintCode] {
-        use LintCode::*;
-        &[
-            L001, L002, L003, L004, L005, L006, L007, L008, L009, L010, L011, L012, L014, L015,
-            L016, L017, L018, L019,
-        ]
-    }
-
     /// Parse a code string such as `"L004"`.
     pub fn from_code_str(s: &str) -> Option<LintCode> {
         LintCode::all_codes()
             .iter()
             .copied()
             .find(|c| c.to_string() == s)
-    }
-
-    /// Stable human-readable rule name.
-    pub fn name(&self) -> &'static str {
-        match self {
-            LintCode::L001 => "line-too-long",
-            LintCode::L002 => "trailing-whitespace",
-            LintCode::L003 => "missing-final-newline",
-            LintCode::L004 => "eq-operator-preferred",
-            LintCode::L005 => "logical-operator-preferred",
-            LintCode::L006 => "float-eq-comparison",
-            LintCode::L007 => "operator-spacing",
-            LintCode::L008 => "nesting-too-deep",
-            LintCode::L009 => "cyclomatic-complexity",
-            LintCode::L010 => "indentation-style",
-            LintCode::L011 => "comment-style",
-            LintCode::L012 => "unused-local",
-            LintCode::L014 => "expand-undefined-variable",
-            LintCode::L015 => "local-missing-initializer",
-            LintCode::L016 => "local-variable-naming",
-            LintCode::L017 => "magic-number",
-            LintCode::L018 => "semicolon-spacing",
-            LintCode::L019 => "cognitive-complexity",
-        }
-    }
-
-    /// Whether `m1-lint --fix` can mechanically fix this rule's diagnostics.
-    pub fn fixable(&self) -> bool {
-        matches!(
-            self,
-            LintCode::L002
-                | LintCode::L003
-                | LintCode::L004
-                | LintCode::L005
-                | LintCode::L007
-                | LintCode::L011
-                | LintCode::L018
-        )
-    }
-
-    /// Whether this rule is *off by default* (still selectable via `--select` or
-    /// `.m1lint.toml`). L017 (magic-number) is manual-recommended but fires very
-    /// often on real scaling/threshold code, so it ships opt-in to avoid drowning
-    /// the default output.
-    pub fn off_by_default(&self) -> bool {
-        matches!(self, LintCode::L017)
     }
 }
 
