@@ -25,6 +25,9 @@ pub struct Config {
     pub enabled: BTreeSet<LintCode>,
     /// Glob patterns; a file whose path or name matches any is skipped (#9).
     pub exclude: Vec<String>,
+    /// Per-rule severity overrides (`[severity]` table: `L001 = "error"`),
+    /// applied to each diagnostic after its rule runs (#110).
+    pub severity_overrides: std::collections::BTreeMap<LintCode, m1_core::Severity>,
 }
 
 impl Default for Config {
@@ -37,6 +40,7 @@ impl Default for Config {
             max_complexity: 40,
             max_cognitive_complexity: 15,
             indent_style: IndentStyle::default(),
+            severity_overrides: std::collections::BTreeMap::new(),
             enabled: LintCode::all_codes()
                 .iter()
                 .copied()
@@ -58,6 +62,7 @@ struct RawConfig {
     select: Option<Vec<String>>,
     ignore: Option<Vec<String>>,
     exclude: Option<Vec<String>>,
+    severity: Option<Vec<(String, String)>>,
 }
 
 /// A configuration error (maps to CLI exit code 2).
@@ -130,6 +135,14 @@ impl Config {
         }
         if let Some(ex) = raw.exclude {
             self.exclude = ex;
+        }
+        if let Some(sev) = raw.severity {
+            for (code_str, level_str) in sev {
+                let code =
+                    LintCode::from_code_str(&code_str).ok_or(ConfigError::UnknownCode(code_str))?;
+                let level = parse_severity(&level_str)?;
+                self.severity_overrides.insert(code, level);
+            }
         }
         self.apply_filters(raw.select, raw.ignore)
     }
@@ -267,6 +280,19 @@ fn parse_raw(s: &str) -> Result<RawConfig, ConfigError> {
                 );
             }
             "select" => raw.select = Some(string_array(v)?),
+            "severity" => {
+                let table = v.as_table().ok_or_else(|| {
+                    ConfigError::Toml("severity must be a table of CODE = \"level\"".into())
+                })?;
+                let mut pairs = Vec::new();
+                for (code, level) in table {
+                    let level = level.as_str().ok_or_else(|| {
+                        ConfigError::Toml(format!("severity.{code} must be a string"))
+                    })?;
+                    pairs.push((code.clone(), level.to_string()));
+                }
+                raw.severity = Some(pairs);
+            }
             "ignore" => raw.ignore = Some(string_array(v)?),
             "exclude" => raw.exclude = Some(string_array(v)?),
             // Report the key as the user wrote it.
@@ -274,6 +300,21 @@ fn parse_raw(s: &str) -> Result<RawConfig, ConfigError> {
         }
     }
     Ok(raw)
+}
+
+/// Parse a severity level name for the `[severity]` override table.
+fn parse_severity(s: &str) -> Result<m1_core::Severity, ConfigError> {
+    Ok(match s.to_ascii_lowercase().as_str() {
+        "error" => m1_core::Severity::Error,
+        "warning" | "warn" => m1_core::Severity::Warning,
+        "info" => m1_core::Severity::Info,
+        "hint" => m1_core::Severity::Hint,
+        _ => {
+            return Err(ConfigError::Toml(format!(
+                "invalid severity level {s:?}; expected error|warning|info|hint"
+            )));
+        }
+    })
 }
 
 fn string_array(v: &toml::Value) -> Result<Vec<String>, ConfigError> {
@@ -344,8 +385,8 @@ mod tests {
 
     #[test]
     fn default_enables_all_on_by_default_rules() {
-        // 18 codes total, one (L017) off by default.
-        assert_eq!(Config::default().enabled.len(), 17);
+        // 22 codes total, one (L017) off by default.
+        assert_eq!(Config::default().enabled.len(), 21);
         assert!(!Config::default().enabled.contains(&LintCode::L017));
         assert_eq!(Config::default().max_line_length, 88);
     }
@@ -409,7 +450,7 @@ mod tests {
         let tmp = std::env::temp_dir();
         // A directory unlikely to contain .m1lint.toml up its chain in CI.
         let cfg = Config::discover(&tmp).unwrap();
-        assert!(cfg.enabled.len() <= 17);
+        assert!(cfg.enabled.len() <= 21);
     }
 
     #[test]

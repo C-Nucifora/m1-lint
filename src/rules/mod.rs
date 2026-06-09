@@ -22,6 +22,10 @@ pub mod l016_local_variable_naming;
 pub mod l017_magic_number;
 pub mod l018_semicolon_spacing;
 pub mod l019_cognitive_complexity;
+pub mod l020_object_naming;
+pub mod l021_one_statement_per_line;
+pub mod l022_keyword_paren_spacing;
+pub mod l023_call_paren_spacing;
 
 /// Build an [`Edit`][crate::fix::Edit] that replaces a symbolic binary operator
 /// (`==`/`!=`/`&&`/`||`) with its keyword form (`eq`/`neq`/`and`/`or`),
