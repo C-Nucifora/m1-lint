@@ -15,6 +15,7 @@ use m1_lint::runner::Runner;
 enum Format {
     Human,
     Json,
+    Sarif,
 }
 
 #[derive(Parser, Debug)]
@@ -67,6 +68,23 @@ struct Args {
     /// Print the rule catalogue (with --format json) and exit
     #[arg(long)]
     rules: bool,
+
+    /// Explain one rule (rationale, manual reference, fix behaviour) and exit
+    #[arg(long, value_name = "CODE")]
+    explain: Option<String>,
+
+    /// With --fix: print the unified diff of what would change, write nothing.
+    /// Exits 1 when the diff is non-empty.
+    #[arg(long)]
+    diff: bool,
+
+    /// Suppress findings recorded in this baseline file (see --write-baseline)
+    #[arg(long, value_name = "FILE")]
+    baseline: Option<PathBuf>,
+
+    /// Lint, then write all current findings to FILE as the new baseline
+    #[arg(long, value_name = "FILE")]
+    write_baseline: Option<PathBuf>,
 }
 
 fn main() {
@@ -77,9 +95,20 @@ fn main() {
     if args.rules {
         match args.format {
             Format::Json => println!("{}", report::render_rules_json()),
-            Format::Human => print!("{}", report::render_rules_human()),
+            Format::Human | Format::Sarif => print!("{}", report::render_rules_human()),
         }
         process::exit(0);
+    }
+
+    // --explain CODE: print the rule rationale and exit (#108).
+    if let Some(code_str) = &args.explain {
+        match m1_lint::diagnostic::LintCode::from_code_str(code_str.trim()) {
+            Some(code) => {
+                println!("{}", report::explain(code));
+                process::exit(0);
+            }
+            None => fail(&format!("unknown lint code `{code_str}` (see --rules)")),
+        }
     }
 
     if args.files.is_empty() {
@@ -92,6 +121,21 @@ fn main() {
 
     let mut any_error = false;
     let mut json_files: Vec<(String, m1_lint::runner::RunResult)> = Vec::new();
+
+    // Baseline handling (#111): load the suppression set up front; collect a
+    // fresh one when --write-baseline is given.
+    let baseline = match &args.baseline {
+        Some(p) => match m1_lint::baseline::Baseline::load(p) {
+            Ok(b) => Some(b),
+            Err(e) => fail(&format!("could not read baseline {}: {e}", p.display())),
+        },
+        None => None,
+    };
+    let mut new_baseline = args
+        .write_baseline
+        .as_ref()
+        .map(|_| m1_lint::baseline::Baseline::default());
+    let mut any_diff = false;
 
     for path in &args.files {
         // Resolve config, lowest layer first: the unified m1-tools.toml, then the
@@ -143,7 +187,18 @@ fn main() {
         let runner = Runner::new(Registry::from_config(&cfg));
 
         match runner.run_file(path) {
-            Ok(result) => {
+            Ok(mut result) => {
+                let display = path.display().to_string();
+                // The baseline anchors on line content, so it needs the source.
+                if baseline.is_some() || new_baseline.is_some() {
+                    let source = std::fs::read_to_string(path).unwrap_or_default();
+                    if let Some(b) = &baseline {
+                        b.filter(&display, &source, &mut result.diagnostics);
+                    }
+                    if let Some(nb) = &mut new_baseline {
+                        nb.record(&display, &source, &result.diagnostics);
+                    }
+                }
                 if !result.syntax_errors.is_empty() {
                     any_error = true;
                 }
@@ -156,12 +211,35 @@ fn main() {
                 }
                 match args.format {
                     Format::Human => {
-                        eprint!(
-                            "{}",
-                            report::render_human(&path.display().to_string(), &result)
-                        );
+                        eprint!("{}", report::render_human(&display, &result));
                     }
-                    Format::Json => json_files.push((path.display().to_string(), result)),
+                    Format::Json | Format::Sarif => json_files.push((display, result)),
+                }
+
+                // --diff (#112): preview what --fix would change; never write.
+                if args.diff {
+                    let source = std::fs::read_to_string(path).unwrap_or_default();
+                    match runner.fix_source_stable(&source) {
+                        Ok(Some(fixed)) => {
+                            print!(
+                                "{}",
+                                m1_workspace::diff::unified_diff(
+                                    &path.display().to_string(),
+                                    &source,
+                                    &fixed
+                                )
+                            );
+                            any_diff = true;
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            eprintln!(
+                                "warning: could not compute fixes for {}: {e}",
+                                path.display()
+                            );
+                            any_error = true;
+                        }
+                    }
                 }
 
                 // Apply fixes only after linting completed without an I/O
@@ -174,6 +252,7 @@ fn main() {
                 // `--fix`, not a silently-skipped subset. Flag it so the process
                 // exits non-zero rather than misleadingly reporting success (#75).
                 if args.fix
+                    && !args.diff
                     && let Err(e) = runner.fix_file(path)
                 {
                     eprintln!("warning: could not fix {}: {}", path.display(), e);
@@ -195,10 +274,21 @@ fn main() {
         }
     }
 
-    if let Format::Json = args.format {
-        println!("{}", report::render_json(&json_files));
+    match args.format {
+        Format::Json => println!("{}", report::render_json(&json_files)),
+        Format::Sarif => println!("{}", report::render_sarif(&json_files)),
+        Format::Human => {}
     }
-    if any_error {
+    if let (Some(path), Some(nb)) = (&args.write_baseline, &new_baseline) {
+        if let Err(e) = m1_workspace::atomic_write(path, nb.to_json().as_bytes()) {
+            fail(&format!("could not write baseline {}: {e}", path.display()));
+        }
+        eprintln!("wrote baseline {}", path.display());
+        // A baseline-writing run is an adoption step, not a gate: exit 0 so
+        // CI can snapshot without failing on the pre-existing findings.
+        process::exit(0);
+    }
+    if any_error || (args.diff && any_diff) {
         process::exit(1);
     }
 }

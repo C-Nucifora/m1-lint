@@ -57,6 +57,10 @@ change across the stack.
 | L017 | Warning | magic number (unnamed numeric literal in an expression) — **opt-in**, enable with `--select L017` |
 | L018 | Warning | space in front of a `;` (manual: "Do not put spaces in front of semicolons") — fixable |
 | L019 | Warning | cognitive complexity too high — Sonar-style, nesting-weighted (configurable, default 15) |
+| L020 | Warning | object name begins lowercase (manual p.64: objects begin with an uppercase letter; locals are L016's side) |
+| L021 | Warning | more than one statement on a line (manual p.65, the first layout rule) |
+| L022 | Warning | no space between a keyword and `(` (`if(a)`) — fixable |
+| L023 | Warning | space between a function name and `(` (`Func (a)`) — fixable |
 
 `L009` (cyclomatic) counts every decision point equally and so grows with sheer
 size; `L019` (cognitive) is nesting-weighted, so deeply-nested logic costs far
@@ -89,6 +93,24 @@ the same line). Suppression is line-scoped to the target construct. (Reporting
 only — `--fix` still applies mechanical fixes; most suppressible rules are
 non-fixable.)
 
+### Per-rule severity overrides
+
+`.m1lint.toml` accepts a `[severity]` table mapping codes to
+`error|warning|info|hint`, applied after the rule runs — promote `L001` to a
+hard error in CI, or soften `L006`, without forking the rule set:
+
+```toml
+[severity]
+L001 = "error"
+```
+
+### Baselines
+
+`--write-baseline FILE` snapshots every current finding (anchored on the
+offending line's content, not its number, so unrelated edits don't resurrect
+suppressed findings); later runs with `--baseline FILE` report only new
+regressions. The adoption path for a legacy codebase.
+
 ## CLI usage
 
 ```sh
@@ -96,6 +118,11 @@ m1-lint <file.m1scr>...              # human-readable diagnostics
 m1-lint --format json <file.m1scr>   # machine-readable JSON
 m1-lint --fix <file.m1scr>           # apply safe autofixes in place
 m1-lint --rules                      # list every rule (add --format json)
+m1-lint --explain L022               # one rule's full rationale and fix behaviour
+m1-lint --fix --diff <file.m1scr>    # preview --fix as a unified diff (writes nothing)
+m1-lint --format sarif <files>       # SARIF 2.1.0 for GitHub code scanning etc.
+m1-lint --write-baseline .m1lint-baseline.json <files>   # snapshot current findings
+m1-lint --baseline .m1lint-baseline.json <files>         # report only NEW findings
 ```
 
 Flags accept both the space-separated (`--format json`) and the GNU

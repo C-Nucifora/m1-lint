@@ -147,6 +147,18 @@ define_rules! {
     /// L019 — cognitive-complexity
     L019 => "cognitive-complexity", false, false,
         |cfg| l019_cognitive_complexity::CognitiveComplexity { max_complexity: cfg.max_cognitive_complexity },
+    /// L020 — object-naming (manual p.64: objects begin with an uppercase letter)
+    L020 => "object-naming", false, false,
+        |cfg| l020_object_naming::ObjectNaming,
+    /// L021 — one-statement-per-line (manual p.65)
+    L021 => "one-statement-per-line", false, false,
+        |cfg| l021_one_statement_per_line::OneStatementPerLine,
+    /// L022 — keyword-paren-spacing (manual p.65: `if (`, not `if(`)
+    L022 => "keyword-paren-spacing", true, false,
+        |cfg| l022_keyword_paren_spacing::KeywordParenSpacing,
+    /// L023 — call-paren-spacing (manual p.65: `Func(`, not `Func (`)
+    L023 => "call-paren-spacing", true, false,
+        |cfg| l023_call_paren_spacing::CallParenSpacing,
 }
 
 impl LintCode {
@@ -213,7 +225,7 @@ mod tests {
 
     #[test]
     fn all_codes_has_eighteen() {
-        assert_eq!(LintCode::all_codes().len(), 18);
+        assert_eq!(LintCode::all_codes().len(), 22);
     }
 
     #[test]

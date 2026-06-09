@@ -6,12 +6,19 @@ use crate::rules::Rule;
 /// Holds all registered lint rules.
 pub struct Registry {
     pub(crate) rules: Vec<Box<dyn Rule>>,
+    /// Per-rule severity overrides from `[severity]` (#110), applied by the
+    /// runner after rules emit.
+    pub(crate) severity_overrides:
+        std::collections::BTreeMap<crate::diagnostic::LintCode, m1_core::Severity>,
 }
 
 impl Registry {
     /// Create an empty registry.
     pub fn empty() -> Self {
-        Self { rules: Vec::new() }
+        Self {
+            rules: Vec::new(),
+            severity_overrides: std::collections::BTreeMap::new(),
+        }
     }
 
     /// Register a rule.
@@ -35,6 +42,7 @@ impl Registry {
         for code in &cfg.enabled {
             r.register(code.build_rule(cfg));
         }
+        r.severity_overrides = cfg.severity_overrides.clone();
         r
     }
 }

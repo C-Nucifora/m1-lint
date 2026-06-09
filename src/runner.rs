@@ -53,6 +53,15 @@ impl Runner {
         // Honour `// @m1:allow(L0xx)` annotations: drop suppressed diagnostics.
         suppress_allowed(source, &cst, &mut result.diagnostics);
 
+        // Apply per-rule severity overrides (`[severity]`, #110).
+        if !self.registry.severity_overrides.is_empty() {
+            for d in &mut result.diagnostics {
+                if let Some(s) = self.registry.severity_overrides.get(&d.code) {
+                    d.inner.severity = *s;
+                }
+            }
+        }
+
         // Sort diagnostics by start position.
         result
             .diagnostics
