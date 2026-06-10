@@ -159,6 +159,12 @@ define_rules! {
     /// L023 — call-paren-spacing (manual p.65: `Func(`, not `Func (`)
     L023 => "call-paren-spacing", true, false,
         |cfg| l023_call_paren_spacing::CallParenSpacing,
+    /// L024 — ternary-condition-parens (manual p.67: `(condition) ? a : b`)
+    L024 => "ternary-condition-parens", true, false,
+        |cfg| l024_ternary_condition_parens::TernaryConditionParens,
+    /// L025 — local-scope-too-wide (manual p.67: most constrained scope)
+    L025 => "local-scope-too-wide", false, false,
+        |cfg| l025_local_scope::LocalScopeTooWide,
 }
 
 impl LintCode {
@@ -225,7 +231,7 @@ mod tests {
 
     #[test]
     fn all_codes_has_eighteen() {
-        assert_eq!(LintCode::all_codes().len(), 22);
+        assert_eq!(LintCode::all_codes().len(), 24);
     }
 
     #[test]

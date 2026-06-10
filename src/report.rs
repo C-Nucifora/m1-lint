@@ -321,6 +321,12 @@ pub fn explain(code: crate::diagnostic::LintCode) -> &'static str {
         L023 => {
             "L023 call-paren-spacing\n\nManual p.65: don't put a space between a function and a parenthesis —\n`Func(a)`, not `Func (a)`. Only a same-line gap flags (wrapping an argument\nlist to the next line is a layout choice). --fix deletes the gap."
         }
+        L024 => {
+            "L024 ternary-condition-parens\n\nManual p.67: put the ternary condition in parentheses —\n`(condition) ? a : b`. The manual's bullet is unconditional (its example\nwraps a bare identifier), so every unparenthesized condition flags; disable\nthe rule in config for the bare style. --fix wraps the condition."
+        }
+        L025 => {
+            "L025 local-scope-too-wide\n\nManual p.67: declare local variables in the most constrained scope. Flags a\nlocal whose every use sits inside one nested block strictly deeper than the\ndeclaration. Exempt: static locals, initializers containing calls (moving\nthem changes when the value is sampled), uses inside expand bodies, and\nre-declared names. No autofix — moving a declaration is a semantic edit."
+        }
     }
 }
 

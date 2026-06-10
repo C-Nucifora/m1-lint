@@ -61,6 +61,8 @@ change across the stack.
 | L021 | Warning | more than one statement on a line (manual p.65, the first layout rule) |
 | L022 | Warning | no space between a keyword and `(` (`if(a)`) — fixable |
 | L023 | Warning | space between a function name and `(` (`Func (a)`) — fixable |
+| L024 | Warning | ternary condition not in parentheses (manual p.67: `(condition) ? a : b`) — fixable |
+| L025 | Warning | `local` only used inside one nested block deeper than its declaration (manual p.67: most constrained scope); static locals, call initializers and expand bodies exempt |
 
 `L009` (cyclomatic) counts every decision point equally and so grows with sheer
 size; `L019` (cognitive) is nesting-weighted, so deeply-nested logic costs far

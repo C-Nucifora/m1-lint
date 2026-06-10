@@ -95,11 +95,46 @@ impl<'a> Fixer<'a> {
 }
 
 /// Whether `candidate` is a safe rewrite of the `before` parse: no new syntax
-/// errors and a token stream equivalent (modulo sanctioned operator rewrites).
+/// errors and a token stream equivalent (modulo sanctioned operator rewrites),
+/// or — for paren-inserting fixes like L024, which add tokens — a parse tree
+/// equivalent modulo redundant paren wrappers.
 fn is_safe(before: &Cst, candidate: &str) -> bool {
     let after = m1_core::parse(candidate);
     after.syntax_diagnostics().len() <= before.syntax_diagnostics().len()
-        && tokens_equivalent(before, &after)
+        && (tokens_equivalent(before, &after) || trees_equivalent_modulo_parens(before, &after))
+}
+
+/// Whether `after` is the `before` parse with zero or more *redundant* paren
+/// wrappers inserted: the trees are identical except that a
+/// `ParenthesizedExpression` in `after` with no counterpart in `before` is
+/// transparent. Wrapping a complete subexpression node (what L024's fix does)
+/// passes; a paren insertion that re-associates anything — `a + b * c` →
+/// `(a + b) * c` — produces a structurally different tree and is rejected.
+/// Leaf comparison accepts the same sanctioned operator rewrites and
+/// MISSING-token fills as [`tokens_equivalent`], so a mixed fix batch (e.g.
+/// L004 + L024) still validates as a whole.
+fn trees_equivalent_modulo_parens(before: &Cst, after: &Cst) -> bool {
+    fn eq(a: &Node, b: &Node) -> bool {
+        // A paren wrapper only present on the after side is transparent.
+        if b.kind() == Kind::ParenthesizedExpression && a.kind() != Kind::ParenthesizedExpression {
+            let inner: Vec<Node> = b
+                .children()
+                .into_iter()
+                .filter(|c| !matches!(c.kind(), Kind::LParen | Kind::RParen))
+                .collect();
+            return inner.len() == 1 && eq(a, &inner[0]);
+        }
+        let (ka, kb) = (a.children(), b.children());
+        if ka.is_empty() && kb.is_empty() {
+            return (a.kind() == b.kind() && a.text() == b.text())
+                || sanctioned(a.text(), b.text())
+                || (a.kind() == b.kind() && a.is_missing() && !b.is_missing());
+        }
+        a.kind() == b.kind()
+            && ka.len() == kb.len()
+            && ka.iter().zip(kb.iter()).all(|(x, y)| eq(x, y))
+    }
+    eq(&before.root(), &after.root())
 }
 
 /// Greedily select the largest prefix-stable subset of `edits` that keeps the
