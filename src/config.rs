@@ -385,8 +385,8 @@ mod tests {
 
     #[test]
     fn default_enables_all_on_by_default_rules() {
-        // 22 codes total, one (L017) off by default.
-        assert_eq!(Config::default().enabled.len(), 21);
+        // 24 codes total, one (L017) off by default.
+        assert_eq!(Config::default().enabled.len(), 23);
         assert!(!Config::default().enabled.contains(&LintCode::L017));
         assert_eq!(Config::default().max_line_length, 88);
     }
@@ -450,7 +450,7 @@ mod tests {
         let tmp = std::env::temp_dir();
         // A directory unlikely to contain .m1lint.toml up its chain in CI.
         let cfg = Config::discover(&tmp).unwrap();
-        assert!(cfg.enabled.len() <= 21);
+        assert!(cfg.enabled.len() <= 23);
     }
 
     #[test]

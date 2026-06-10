@@ -26,6 +26,8 @@ pub mod l020_object_naming;
 pub mod l021_one_statement_per_line;
 pub mod l022_keyword_paren_spacing;
 pub mod l023_call_paren_spacing;
+pub mod l024_ternary_condition_parens;
+pub mod l025_local_scope;
 
 /// Build an [`Edit`][crate::fix::Edit] that replaces a symbolic binary operator
 /// (`==`/`!=`/`&&`/`||`) with its keyword form (`eq`/`neq`/`and`/`or`),
