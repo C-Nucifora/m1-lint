@@ -71,7 +71,7 @@ readability gate (`--max-cognitive-complexity`), L009 is a loose backstop for
 pathological branch counts (`--max-complexity`).
 
 The catalogue is also available machine-readably with `m1-lint --rules --format
-json` (schema `{"version":1,"rules":[{"code","name","fixable"}]}`), sourced
+json` (schema `{"version":2,"rules":[{"code","name","severity","fixable","summary"}]}`), sourced
 directly from the `LintCode` enum so external tools can enumerate the rules
 without copying the list.
 

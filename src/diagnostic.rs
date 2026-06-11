@@ -17,12 +17,14 @@ use crate::rules::Rule;
 /// place, so adding a rule is a single new entry rather than ~5 lock-step edits
 /// scattered across files.
 ///
-/// Entry grammar: `Variant => name, fixable, off_by_default, |cfg| <Rule expr>`.
+/// Entry grammar:
+/// `Variant => name, severity, fixable, off_by_default, summary, |cfg| <Rule expr>`.
 macro_rules! define_rules {
     (
         $(
             $(#[$meta:meta])*
-            $variant:ident => $name:literal, $fixable:literal, $off:literal, |$cfg:ident| $build:expr
+            $variant:ident => $name:literal, $severity:literal, $fixable:literal, $off:literal,
+                $summary:literal, |$cfg:ident| $build:expr
         ),+ $(,)?
     ) => {
         /// A lint rule code.
@@ -62,6 +64,25 @@ macro_rules! define_rules {
                 }
             }
 
+            /// The rule's static default severity — the [`Severity`] its
+            /// diagnostics carry absent configuration. As a string
+            /// (`"error"` / `"warning"`) because that is the catalogue's
+            /// interchange form (`--rules --format json`, schema v2).
+            pub fn severity(&self) -> &'static str {
+                match self {
+                    $( LintCode::$variant => $severity, )+
+                }
+            }
+
+            /// One-line imperative summary of what the rule flags, matching the
+            /// README "Rules" table. Exported in the catalogue (schema v2) so
+            /// editor pickers don't have to hand-maintain a copy.
+            pub fn summary(&self) -> &'static str {
+                match self {
+                    $( LintCode::$variant => $summary, )+
+                }
+            }
+
             /// Whether this rule is *off by default* (still selectable via
             /// `--select` or `.m1lint.toml`). L017 (magic-number) is
             /// manual-recommended but fires very often on real scaling/threshold
@@ -94,76 +115,100 @@ macro_rules! define_rules {
 
 define_rules! {
     /// L001 — line-too-long
-    L001 => "line-too-long", false, false,
+    L001 => "line-too-long", "warning", false, false,
+        "line exceeds the configured maximum length",
         |cfg| l001_line_too_long::LineTooLong { max_len: cfg.max_line_length },
     /// L002 — trailing-whitespace
-    L002 => "trailing-whitespace", true, false,
+    L002 => "trailing-whitespace", "warning", true, false,
+        "trailing whitespace at end of line",
         |cfg| l002_trailing_whitespace::TrailingWhitespace,
     /// L003 — missing-final-newline
-    L003 => "missing-final-newline", true, false,
+    L003 => "missing-final-newline", "warning", true, false,
+        "file does not end with a newline",
         |cfg| l003_missing_final_newline::MissingFinalNewline,
     /// L004 — eq-operator-preferred
-    L004 => "eq-operator-preferred", true, false,
+    L004 => "eq-operator-preferred", "warning", true, false,
+        "prefer `eq`/`neq` over `==`/`!=`",
         |cfg| l004_eq_operator_preferred::EqOperatorPreferred,
     /// L005 — logical-operator-preferred
-    L005 => "logical-operator-preferred", true, false,
+    L005 => "logical-operator-preferred", "warning", true, false,
+        "prefer the spelled logical operators (and/or/not)",
         |cfg| l005_logical_operator_preferred::LogicalOperatorPreferred,
     /// L006 — float-eq-comparison
-    L006 => "float-eq-comparison", false, false,
+    L006 => "float-eq-comparison", "error", false, false,
+        "float compared with an equality operator",
         |cfg| l006_float_eq_comparison::FloatEqComparison,
     /// L007 — operator-spacing
-    L007 => "operator-spacing", true, false,
+    L007 => "operator-spacing", "warning", true, false,
+        "missing space around an operator",
         |cfg| l007_operator_spacing::OperatorSpacing,
     /// L008 — nesting-too-deep
-    L008 => "nesting-too-deep", false, false,
+    L008 => "nesting-too-deep", "warning", false, false,
+        "block nesting exceeds the configured depth",
         |cfg| l008_nesting_too_deep::NestingTooDeep { max_depth: cfg.max_nesting_depth },
     /// L009 — cyclomatic-complexity
-    L009 => "cyclomatic-complexity", false, false,
+    L009 => "cyclomatic-complexity", "warning", false, false,
+        "cyclomatic complexity exceeds the configured ceiling",
         |cfg| l009_cyclomatic_complexity::CyclomaticComplexity { max_complexity: cfg.max_complexity },
     /// L010 — indentation-style (L010 is historically "tab-for-indentation")
-    L010 => "indentation-style", false, false,
+    L010 => "indentation-style", "warning", false, false,
+        "indentation does not match the configured style",
         |cfg| l010_tab_indentation::Indentation { style: cfg.indent_style },
     /// L011 — comment-style
-    L011 => "comment-style", true, false,
+    L011 => "comment-style", "warning", true, false,
+        "`//` comment needs a space after the slashes",
         |cfg| l011_comment_style::CommentStyle { max_line_length: cfg.max_line_length },
     /// L012 — unused-local
-    L012 => "unused-local", false, false,
+    L012 => "unused-local", "warning", false, false,
+        "local binding is never used",
         |cfg| l012_unused_local::UnusedLocal,
     /// L014 — expand-undefined-variable (L013 is reserved for the DBC-range rule)
-    L014 => "expand-undefined-variable", false, false,
+    L014 => "expand-undefined-variable", "warning", false, false,
+        "expand body references an undefined $(VAR)",
         |cfg| l014_expand_undefined_variable::ExpandUndefinedVariable,
     /// L015 — local-missing-initializer
-    L015 => "local-missing-initializer", false, false,
+    L015 => "local-missing-initializer", "warning", false, false,
+        "local declared without an initializer",
         |cfg| l015_local_missing_initializer::LocalMissingInitializer,
     /// L016 — local-variable-naming
-    L016 => "local-variable-naming", false, false,
+    L016 => "local-variable-naming", "warning", false, false,
+        "local name does not follow the naming convention",
         |cfg| l016_local_variable_naming::LocalVariableNaming,
     /// L017 — magic-number
-    L017 => "magic-number", false, true,
+    L017 => "magic-number", "warning", false, true,
+        "unnamed numeric literal (magic number)",
         |cfg| l017_magic_number::MagicNumber,
     /// L018 — semicolon-spacing
-    L018 => "semicolon-spacing", true, false,
+    L018 => "semicolon-spacing", "warning", true, false,
+        "incorrect spacing around a semicolon",
         |cfg| l018_semicolon_spacing::SemicolonSpacing,
     /// L019 — cognitive-complexity
-    L019 => "cognitive-complexity", false, false,
+    L019 => "cognitive-complexity", "warning", false, false,
+        "cognitive complexity exceeds the configured ceiling",
         |cfg| l019_cognitive_complexity::CognitiveComplexity { max_complexity: cfg.max_cognitive_complexity },
     /// L020 — object-naming (manual p.64: objects begin with an uppercase letter)
-    L020 => "object-naming", false, false,
+    L020 => "object-naming", "warning", false, false,
+        "object names begin with an uppercase letter",
         |cfg| l020_object_naming::ObjectNaming,
     /// L021 — one-statement-per-line (manual p.65)
-    L021 => "one-statement-per-line", false, false,
+    L021 => "one-statement-per-line", "warning", false, false,
+        "write only one statement per line",
         |cfg| l021_one_statement_per_line::OneStatementPerLine,
     /// L022 — keyword-paren-spacing (manual p.65: `if (`, not `if(`)
-    L022 => "keyword-paren-spacing", true, false,
+    L022 => "keyword-paren-spacing", "warning", true, false,
+        "put a space between a keyword and its parenthesis",
         |cfg| l022_keyword_paren_spacing::KeywordParenSpacing,
     /// L023 — call-paren-spacing (manual p.65: `Func(`, not `Func (`)
-    L023 => "call-paren-spacing", true, false,
+    L023 => "call-paren-spacing", "warning", true, false,
+        "no space between a function name and its parenthesis",
         |cfg| l023_call_paren_spacing::CallParenSpacing,
     /// L024 — ternary-condition-parens (manual p.67: `(condition) ? a : b`)
-    L024 => "ternary-condition-parens", true, false,
+    L024 => "ternary-condition-parens", "warning", true, false,
+        "wrap a ternary condition in parentheses",
         |cfg| l024_ternary_condition_parens::TernaryConditionParens,
     /// L025 — local-scope-too-wide (manual p.67: most constrained scope)
-    L025 => "local-scope-too-wide", false, false,
+    L025 => "local-scope-too-wide", "warning", false, false,
+        "local declared in a wider scope than its uses need",
         |cfg| l025_local_scope::LocalScopeTooWide,
 }
 
