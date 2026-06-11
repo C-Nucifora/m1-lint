@@ -90,6 +90,11 @@ struct Args {
     /// Lint, then write all current findings to FILE as the new baseline
     #[arg(long, value_name = "FILE")]
     write_baseline: Option<PathBuf>,
+
+    /// Number of worker threads for multi-file runs (default: one per core;
+    /// `--jobs 1` forces serial processing)
+    #[arg(long, value_name = "N")]
+    jobs: Option<usize>,
 }
 
 fn main() {
@@ -179,102 +184,158 @@ fn main() {
         }
     }
 
+    // Resolve config once per unique parent directory, not once per file:
+    // `resolve_config` walks the directory tree upward (filesystem I/O) and a
+    // Runner/Registry build per file is pure waste when 200 scripts share a
+    // directory. The exclude globs are compiled once per entry too (#127).
+    let mut contexts: std::collections::HashMap<PathBuf, DirContext> =
+        std::collections::HashMap::new();
     for path in &files {
-        let cfg = resolve_config(&args, &select, &ignore, &m1_lint::config::dir_of(path));
+        let dir = m1_lint::config::dir_of(path);
+        contexts.entry(dir).or_insert_with_key(|dir| {
+            let cfg = resolve_config(&args, &select, &ignore, dir);
+            DirContext {
+                matcher: m1_lint::config::ExcludeMatcher::new(&cfg),
+                runner: Runner::new(Registry::from_config(&cfg)),
+            }
+        });
+    }
 
-        // Skip files matching an `exclude` glob from the config (#9).
-        if cfg.is_excluded(path) {
+    // Lint files in parallel (#131): per-file work is CPU-bound (parse + rule
+    // walk) and share-nothing once configs are resolved. Each file produces a
+    // FileOutcome; rendering happens serially afterwards in input order, so
+    // output (and exit codes) stay byte-deterministic.
+    if let Some(n) = args.jobs {
+        // Errors only if a global pool already exists (e.g. in tests) — the
+        // default pool is then used, which is acceptable.
+        let _ = rayon::ThreadPoolBuilder::new()
+            .num_threads(n)
+            .build_global();
+    }
+    use rayon::prelude::*;
+    let outcomes: Vec<Option<FileOutcome>> = files
+        .par_iter()
+        .map(|path| {
+            let ctx = &contexts[&m1_lint::config::dir_of(path)];
+
+            // Skip files matching an `exclude` glob from the config (#9).
+            if ctx.matcher.is_excluded(path) {
+                return None;
+            }
+            let display = path.display().to_string();
+
+            // One tolerant read serves linting, baseline anchoring, and --diff.
+            // The strict `read_to_string().unwrap_or_default()` re-reads
+            // previously used for the latter two silently collapsed non-UTF-8
+            // (Windows-1252) sources to "", losing the baseline's content anchor
+            // and making --diff disagree with --fix (#124).
+            let source = match m1_workspace::read_text(path) {
+                Ok(s) => s,
+                // A per-file read error (a genuinely unreadable path: missing,
+                // permission-denied) must not abort the whole batch — report
+                // it, mark the run failed, and keep linting later files (#66).
+                Err(e) => {
+                    return Some(FileOutcome {
+                        display,
+                        read_err: Some(e.to_string()),
+                        ..Default::default()
+                    });
+                }
+            };
+
+            let mut result = ctx.runner.run_source(&source);
+            if let Some(b) = &baseline {
+                b.filter(&display, &source, &mut result.diagnostics);
+            }
+            let mut out = FileOutcome {
+                error: !result.syntax_errors.is_empty()
+                    || result
+                        .diagnostics
+                        .iter()
+                        .any(|d| d.inner.severity == m1_core::Severity::Error),
+                display,
+                ..Default::default()
+            };
+
+            // --diff (#112): preview what --fix would change; never write.
+            if args.diff {
+                match ctx.runner.fix_source_stable(&source) {
+                    Ok(Some(fixed)) => {
+                        out.diff = Some(m1_workspace::diff::unified_diff(
+                            &out.display,
+                            &source,
+                            &fixed,
+                        ));
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        out.warning = Some(format!(
+                            "warning: could not compute fixes for {}: {e}",
+                            out.display
+                        ));
+                        out.error = true;
+                    }
+                }
+            }
+
+            // Apply fixes only after linting completed without an I/O error.
+            // Fixing first risked rewriting the file on disk and then failing
+            // to re-read it, leaving it altered with no output (#10).
+            // `fix_file` applies every independent safe fix and drops only the
+            // genuinely unsafe edits, so an `Err` here means *no* edit could be
+            // applied safely — a real failure to honour `--fix`, not a
+            // silently-skipped subset. Flag it so the process exits non-zero
+            // rather than misleadingly reporting success (#75).
+            if args.fix
+                && !args.diff
+                && let Err(e) = ctx.runner.fix_file(path)
+            {
+                out.warning = Some(format!("warning: could not fix {}: {}", out.display, e));
+                out.error = true;
+            }
+
+            out.source = Some(source);
+            out.result = Some(result);
+            Some(out)
+        })
+        .collect();
+
+    // Render serially, in input order (deterministic output; the baseline
+    // recorder needs `&mut` and human/JSON streams must not interleave).
+    for out in outcomes.into_iter().flatten() {
+        let FileOutcome {
+            display,
+            source,
+            read_err,
+            result,
+            diff,
+            warning,
+            error,
+        } = out;
+        if let Some(e) = read_err {
+            eprintln!("error: could not read {display}: {e}");
+            any_error = true;
             continue;
         }
-
-        let runner = Runner::new(Registry::from_config(&cfg));
-
-        // One tolerant read serves linting, baseline anchoring, and --diff. The
-        // strict `read_to_string().unwrap_or_default()` re-reads previously used
-        // for the latter two silently collapsed non-UTF-8 (Windows-1252) sources
-        // to "", losing the baseline's content anchor and making --diff disagree
-        // with --fix (#124).
-        match m1_workspace::read_text(path) {
-            Ok(source) => {
-                let mut result = runner.run_source(&source);
-                let display = path.display().to_string();
-                if let Some(b) = &baseline {
-                    b.filter(&display, &source, &mut result.diagnostics);
-                }
-                if let Some(nb) = &mut new_baseline {
-                    nb.record(&display, &source, &result.diagnostics);
-                }
-                if !result.syntax_errors.is_empty() {
-                    any_error = true;
-                }
-                if result
-                    .diagnostics
-                    .iter()
-                    .any(|d| d.inner.severity == m1_core::Severity::Error)
-                {
-                    any_error = true;
-                }
-                match args.format {
-                    Format::Human => {
-                        eprint!("{}", report::render_human(&display, &result));
-                    }
-                    Format::Json | Format::Sarif => json_files.push((display, result)),
-                }
-
-                // --diff (#112): preview what --fix would change; never write.
-                if args.diff {
-                    match runner.fix_source_stable(&source) {
-                        Ok(Some(fixed)) => {
-                            print!(
-                                "{}",
-                                m1_workspace::diff::unified_diff(
-                                    &path.display().to_string(),
-                                    &source,
-                                    &fixed
-                                )
-                            );
-                            any_diff = true;
-                        }
-                        Ok(None) => {}
-                        Err(e) => {
-                            eprintln!(
-                                "warning: could not compute fixes for {}: {e}",
-                                path.display()
-                            );
-                            any_error = true;
-                        }
-                    }
-                }
-
-                // Apply fixes only after linting completed without an I/O
-                // error. Fixing first risked rewriting the file on disk and
-                // then failing to re-read it, leaving it altered with no output
-                // (#10).
-                // `fix_file` now applies every independent safe fix and drops
-                // only the genuinely unsafe edits, so an `Err` here means *no*
-                // edit could be applied safely — a real failure to honour
-                // `--fix`, not a silently-skipped subset. Flag it so the process
-                // exits non-zero rather than misleadingly reporting success (#75).
-                if args.fix
-                    && !args.diff
-                    && let Err(e) = runner.fix_file(path)
-                {
-                    eprintln!("warning: could not fix {}: {}", path.display(), e);
-                    any_error = true;
-                }
-            }
-            // A per-file read error (a genuinely unreadable path: missing,
-            // permission-denied, a directory) must not abort the whole batch —
-            // report it, mark the run failed, and keep linting later files.
-            // Deferring the non-zero exit to after the loop (and making it the
-            // lint-failure code 1, not the usage/abort code 2) mirrors m1-fmt's
-            // per-file loop, so `m1-lint Scripts/*.m1scr` no longer leaves an
-            // unknown number of scripts unchecked behind one file (#66).
-            Err(e) => {
-                eprintln!("error: could not read {}: {}", path.display(), e);
-                any_error = true;
-                continue;
-            }
+        let (Some(source), Some(result)) = (source, result) else {
+            continue;
+        };
+        if let Some(nb) = &mut new_baseline {
+            nb.record(&display, &source, &result.diagnostics);
+        }
+        if error {
+            any_error = true;
+        }
+        match args.format {
+            Format::Human => eprint!("{}", report::render_human(&display, &result)),
+            Format::Json | Format::Sarif => json_files.push((display, result)),
+        }
+        if let Some(d) = diff {
+            print!("{d}");
+            any_diff = true;
+        }
+        if let Some(w) = warning {
+            eprintln!("{w}");
         }
     }
 
@@ -384,6 +445,31 @@ fn run_stdin(
             }
         }
     }
+}
+
+/// Everything a worker needs to lint files in one directory: the resolved
+/// config's compiled exclude globs and the rule runner built from it (#127).
+struct DirContext {
+    matcher: m1_lint::config::ExcludeMatcher,
+    runner: Runner,
+}
+
+/// One file's results from the parallel lint phase, rendered serially in input
+/// order afterwards (#131). `None` fields mean "not applicable" (e.g. no
+/// `--diff` requested, or the read failed before linting).
+#[derive(Default)]
+struct FileOutcome {
+    display: String,
+    /// The decoded source (needed later for `--write-baseline` recording).
+    source: Option<String>,
+    read_err: Option<String>,
+    result: Option<m1_lint::runner::RunResult>,
+    /// Unified diff for `--diff`.
+    diff: Option<String>,
+    /// A deferred fix/diff warning line for stderr.
+    warning: Option<String>,
+    /// Whether this file makes the run exit non-zero.
+    error: bool,
 }
 
 /// Resolve the effective [`Config`] for a lint target, lowest layer first: the

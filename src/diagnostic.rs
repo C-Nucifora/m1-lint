@@ -191,7 +191,7 @@ define_rules! {
         "object names begin with an uppercase letter",
         |cfg| l020_object_naming::ObjectNaming,
     /// L021 — one-statement-per-line (manual p.65)
-    L021 => "one-statement-per-line", "warning", false, false,
+    L021 => "one-statement-per-line", "warning", true, false,
         "write only one statement per line",
         |cfg| l021_one_statement_per_line::OneStatementPerLine,
     /// L022 — keyword-paren-spacing (manual p.65: `if (`, not `if(`)
