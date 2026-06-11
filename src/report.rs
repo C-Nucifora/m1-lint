@@ -333,6 +333,12 @@ pub fn explain(code: crate::diagnostic::LintCode) -> &'static str {
         L025 => {
             "L025 local-scope-too-wide\n\nManual p.67: declare local variables in the most constrained scope. Flags a\nlocal whose every use sits inside one nested block strictly deeper than the\ndeclaration. Exempt: static locals, initializers containing calls (moving\nthem changes when the value is sampled), uses inside expand bodies, and\nre-declared names. No autofix — moving a declaration is a semantic edit."
         }
+        L026 => {
+            "L026 top-level-indentation\n\nManual p.65: all code begins in the first column. Flags a top-level\nstatement whose line starts with whitespace. CST-based, so block-comment\ninteriors (` * ` continuation style), indented comments and the continuation\nlines of a wrapped statement are exempt. --fix strips the leading\nwhitespace."
+        }
+        L027 => {
+            "L027 file-final-blank-line\n\nOpt-in (--select L027). Manual p.65: all functions and methods end with a\nblank line — and an .m1scr file IS a method/function body, so the script\nmust end in a blank line (\\n\\n). Ships off by default: the real corpora\ndon't follow this bullet, and m1-fmt's default trailing-newline\nnormalisation strips the blank line again — pair the rule with a formatter\nconfiguration that preserves it. When the file lacks even a final newline,\nL003 fires instead. --fix appends the blank line."
+        }
     }
 }
 

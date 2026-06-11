@@ -286,12 +286,16 @@ fn main() {
             // applied safely — a real failure to honour `--fix`, not a
             // silently-skipped subset. Flag it so the process exits non-zero
             // rather than misleadingly reporting success (#75).
-            if args.fix
-                && !args.diff
-                && let Err(e) = ctx.runner.fix_file(path)
-            {
-                out.warning = Some(format!("warning: could not fix {}: {}", out.display, e));
-                out.error = true;
+            if args.fix && !args.diff {
+                match ctx.runner.fix_file(path) {
+                    // Count rewrites so --fix can report what it did (#137).
+                    Ok(changed) => out.fixed = changed,
+                    Err(e) => {
+                        out.warning =
+                            Some(format!("warning: could not fix {}: {}", out.display, e));
+                        out.error = true;
+                    }
+                }
             }
 
             out.source = Some(source);
@@ -302,6 +306,8 @@ fn main() {
 
     // Render serially, in input order (deterministic output; the baseline
     // recorder needs `&mut` and human/JSON streams must not interleave).
+    let mut files_seen = 0usize;
+    let mut files_fixed = 0usize;
     for out in outcomes.into_iter().flatten() {
         let FileOutcome {
             display,
@@ -311,11 +317,16 @@ fn main() {
             diff,
             warning,
             error,
+            fixed,
         } = out;
         if let Some(e) = read_err {
             eprintln!("error: could not read {display}: {e}");
             any_error = true;
             continue;
+        }
+        files_seen += 1;
+        if fixed {
+            files_fixed += 1;
         }
         let (Some(source), Some(result)) = (source, result) else {
             continue;
@@ -343,6 +354,12 @@ fn main() {
         Format::Json => println!("{}", report::render_json(&json_files)),
         Format::Sarif => println!("{}", report::render_sarif(&json_files)),
         Format::Human => {}
+    }
+    // --fix was silent about what it did; "0 files" also tells the user the
+    // remaining findings are unfixable (#137). Stderr, like the per-file
+    // reports, so machine formats on stdout are unaffected.
+    if args.fix && !args.diff {
+        eprintln!("applied fixes to {files_fixed} of {files_seen} file(s)");
     }
     if let (Some(path), Some(nb)) = (&args.write_baseline, &new_baseline) {
         if let Err(e) = m1_workspace::atomic_write(path, nb.to_json().as_bytes()) {
@@ -470,6 +487,8 @@ struct FileOutcome {
     warning: Option<String>,
     /// Whether this file makes the run exit non-zero.
     error: bool,
+    /// Whether `--fix` rewrote this file (`fix_file` returned `Ok(true)`).
+    fixed: bool,
 }
 
 /// Resolve the effective [`Config`] for a lint target, lowest layer first: the

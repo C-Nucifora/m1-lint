@@ -102,6 +102,21 @@ fn visit(node: &Node, nesting: u32, total: &mut u32) {
                 }
             }
 
+            Kind::ExpandStatement => {
+                // A compile-time loop is a nesting construct like `if`: it adds
+                // `1 + nesting` and its body is scored one level deeper. L009
+                // already counts `expand` as a decision point — the two rules
+                // must agree on what branches (#134).
+                *total += 1 + nesting;
+                for child in node.children() {
+                    if child.kind() == Kind::Block {
+                        push_children(&child, nesting + 1, &mut stack);
+                    } else {
+                        stack.push((child, nesting));
+                    }
+                }
+            }
+
             Kind::IsClause => {
                 // A `when ... is` arm: a flat +1, body one level deeper.
                 *total += 1;
@@ -239,6 +254,17 @@ mod tests {
         assert!(
             msgs.iter().any(|m| m.contains("cognitive complexity 4")),
             "expected complexity 4 for a 4-arm chain, got {msgs:?}"
+        );
+    }
+
+    #[test]
+    fn expand_counts_like_a_nesting_construct() {
+        // expand(1) + nested if(1+1) = 3 — the expand body is one level deeper.
+        let source = "expand (I = 1 to 4)\n{\nif (a) { x = $(I); }\n}\n";
+        let msgs = l019_messages(source, 2);
+        assert!(
+            msgs.iter().any(|m| m.contains("cognitive complexity 3")),
+            "expected complexity 3 (expand 1, nested if 2), got {msgs:?}"
         );
     }
 

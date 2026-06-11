@@ -63,6 +63,8 @@ change across the stack.
 | L023 | Warning | space between a function name and `(` (`Func (a)`) — fixable |
 | L024 | Warning | ternary condition not in parentheses (manual p.67: `(condition) ? a : b`) — fixable |
 | L025 | Warning | `local` only used inside one nested block deeper than its declaration (manual p.67: most constrained scope); static locals, call initializers and expand bodies exempt |
+| L026 | Warning | top-level statement does not begin in the first column (manual p.65: "All code begins in the first column"); comments and continuation lines exempt — fixable |
+| L027 | Warning | script does not end with a blank line (manual p.65: "All functions and methods to end with a blank line"; an `.m1scr` *is* a method body) — **opt-in**, enable with `--select L027` and pair with a formatter that preserves the final blank line — fixable |
 
 `L009` (cyclomatic) counts every decision point equally and so grows with sheer
 size; `L019` (cognitive) is nesting-weighted, so deeply-nested logic costs far

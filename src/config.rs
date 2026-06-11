@@ -414,9 +414,18 @@ mod tests {
 
     #[test]
     fn default_enables_all_on_by_default_rules() {
-        // 24 codes total, one (L017) off by default.
-        assert_eq!(Config::default().enabled.len(), 23);
+        // Derived from the catalogue so a new rule can't make this stale:
+        // every code is enabled except the off-by-default ones (L017, L027).
+        let off = LintCode::all_codes()
+            .iter()
+            .filter(|c| c.off_by_default())
+            .count();
+        assert_eq!(
+            Config::default().enabled.len(),
+            LintCode::all_codes().len() - off
+        );
         assert!(!Config::default().enabled.contains(&LintCode::L017));
+        assert!(!Config::default().enabled.contains(&LintCode::L027));
         assert_eq!(Config::default().max_line_length, 88);
     }
 
@@ -478,8 +487,10 @@ mod tests {
     fn discover_walks_up_to_default_when_absent() {
         let tmp = std::env::temp_dir();
         // A directory unlikely to contain .m1lint.toml up its chain in CI.
+        // Compare against the catalogue-derived default, not a hand count
+        // that goes stale when a rule is added (#133's stale-count lesson).
         let cfg = Config::discover(&tmp).unwrap();
-        assert!(cfg.enabled.len() <= 23);
+        assert!(cfg.enabled.len() <= Config::default().enabled.len());
     }
 
     #[test]
