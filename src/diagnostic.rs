@@ -210,6 +210,18 @@ define_rules! {
     L025 => "local-scope-too-wide", "warning", false, false,
         "local declared in a wider scope than its uses need",
         |cfg| l025_local_scope::LocalScopeTooWide,
+    /// L026 — top-level-indentation (manual p.65: all code begins in the first column)
+    L026 => "top-level-indentation", "warning", true, false,
+        "top-level code begins in the first column",
+        |cfg| l026_top_level_indentation::TopLevelIndentation,
+    /// L027 — file-final-blank-line (manual p.65: functions and methods end with
+    /// a blank line; an .m1scr file *is* a method/function body). Opt-in: the
+    /// real corpora don't follow it and m1-fmt's default trailing-newline
+    /// normalisation strips the blank line — enable it together with the
+    /// formatter knob that preserves one (see the rule docs).
+    L027 => "file-final-blank-line", "warning", true, true,
+        "function/method script ends with a blank line",
+        |cfg| l027_file_final_blank_line::FileFinalBlankLine,
 }
 
 impl LintCode {
@@ -234,9 +246,9 @@ pub struct LintDiagnostic {
 impl LintDiagnostic {
     /// Construct a new `LintDiagnostic`.
     ///
-    /// The `inner.code` field is set to the placeholder
-    /// `m1_core::Code::SyntaxError`; `m1_core::Code` has no lint variant. The
-    /// meaningful code is [`LintDiagnostic::code`].
+    /// The `inner.code` field is the broad *category*
+    /// (`m1_core::Code::LintError`); the specific rule identity is
+    /// [`LintDiagnostic::code`] (the `L0xx` `LintCode`).
     pub fn new(
         code: LintCode,
         range: Range,
@@ -250,7 +262,7 @@ impl LintDiagnostic {
                 range,
                 byte_range,
                 severity,
-                code: m1_core::Code::SyntaxError,
+                code: m1_core::Code::LintError,
                 message: message.into(),
             },
         }
@@ -275,8 +287,17 @@ mod tests {
     }
 
     #[test]
-    fn all_codes_has_eighteen() {
-        assert_eq!(LintCode::all_codes().len(), 24);
+    fn all_codes_is_complete_and_ordered() {
+        // Derived bounds rather than a hand-counted length (the old test name
+        // said "eighteen" while asserting 24 — #133): the list must run from
+        // L001 to the current last code with no duplicates.
+        let codes = LintCode::all_codes();
+        assert_eq!(codes.first(), Some(&LintCode::L001));
+        assert_eq!(codes.last(), Some(&LintCode::L027));
+        let mut sorted = codes.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), codes.len(), "duplicate codes in all_codes()");
     }
 
     #[test]
