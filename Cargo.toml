@@ -1,7 +1,8 @@
 [package]
 name = "m1-lint"
-version = "0.15.0"
+version = "0.16.0"
 edition = "2024"
+rust-version = "1.88"
 description = "Linter for the MoTeC M1 script language"
 license = "GPL-3.0-or-later"
 

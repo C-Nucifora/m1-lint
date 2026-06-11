@@ -164,3 +164,120 @@ fn unreadable_file_continues_and_exits_one() {
         "an unreadable file must exit 1 (lint failure), not 2 (abort). stderr: {stderr}"
     );
 }
+
+/// Create a uniquely-named temp directory and return its path.
+fn temp_dir(name: &str) -> std::path::PathBuf {
+    let mut dir = std::env::temp_dir();
+    dir.push(format!("m1lint-cli-{}-{}", std::process::id(), name));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn baseline_anchors_on_content_for_windows_1252_file() {
+    // #124: the baseline must anchor on the *decoded* line content of a
+    // Windows-1252 source, exactly as it does for UTF-8. Baseline a finding,
+    // then replace the offending line with DIFFERENT content violating the
+    // same rule: the new finding must be reported, not absorbed by the stale
+    // baseline entry (which is what happens when the anchor source is read
+    // strictly and silently collapses to "").
+    let file = temp_file_bytes("bl-1252.m1scr", b"// yaw \xb0/s\nMath.Constant Y = 2\t \n");
+    let mut bl = std::env::temp_dir();
+    bl.push(format!("m1lint-cli-{}-bl-1252.txt", std::process::id()));
+    let out = bin()
+        .arg("--write-baseline")
+        .arg(&bl)
+        .arg(&file)
+        .output()
+        .expect("run m1-lint");
+    assert_ne!(out.status.code(), Some(2), "write-baseline run must parse");
+
+    // Same rule (L002 trailing whitespace), different line content.
+    std::fs::write(&file, b"// yaw \xb0/s\nMath.Constant Z = 3\t \n").unwrap();
+    let out = bin()
+        .arg("--baseline")
+        .arg(&bl)
+        .arg(&file)
+        .output()
+        .expect("run m1-lint");
+    let _ = std::fs::remove_file(&file);
+    let _ = std::fs::remove_file(&bl);
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("L002"),
+        "a changed line is a NEW finding; it must not be suppressed by a \
+         stale baseline anchor. stderr: {stderr}"
+    );
+}
+
+#[test]
+fn diff_previews_fixes_for_windows_1252_file() {
+    // #124: `--fix --diff` must preview against the tolerantly-decoded source,
+    // agreeing with what `--fix` would actually do — including for
+    // Windows-1252 files (where a strict re-read yields "" and the preview
+    // silently claims there is nothing to fix).
+    let file = temp_file_bytes("diff-1252.m1scr", b"// yaw \xb0/s\nx = a == b;\n");
+    let before = std::fs::read(&file).unwrap();
+    let out = bin()
+        .arg("--fix")
+        .arg("--diff")
+        .arg(&file)
+        .output()
+        .expect("run m1-lint");
+    let after = std::fs::read(&file).unwrap();
+    let _ = std::fs::remove_file(&file);
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("eq"),
+        "--diff must show the `==` -> `eq` fix. stdout: {stdout}"
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "a non-empty diff exits 1. stdout: {stdout}"
+    );
+    assert_eq!(before, after, "--diff must never write the file");
+}
+
+#[test]
+fn directory_argument_lints_scripts_recursively() {
+    // #125: a directory argument expands to every `.m1scr` beneath it.
+    let dir = temp_dir("walkdir");
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    std::fs::write(dir.join("a.m1scr"), "Math.Constant Y = 2\t \n").unwrap();
+    std::fs::write(dir.join("sub").join("b.m1scr"), "x = a == b;\n").unwrap();
+    let out = bin().arg(&dir).output().expect("run m1-lint");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("could not read"),
+        "a directory must be expanded, not read as a file. stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("a.m1scr") && stderr.contains("L002"),
+        "top-level script must be linted. stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("b.m1scr") && stderr.contains("L004"),
+        "nested script must be linted. stderr: {stderr}"
+    );
+}
+
+#[test]
+fn directory_with_no_scripts_reports_and_fails() {
+    // #125: a directory yielding zero scripts must say so and fail, not
+    // silently exit 0 (a wrong path would otherwise look clean).
+    let dir = temp_dir("emptydir");
+    let out = bin().arg(&dir).output().expect("run m1-lint");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("no .m1scr"),
+        "an empty directory must be reported. stderr: {stderr}"
+    );
+    assert_eq!(out.status.code(), Some(1), "empty directory is a failure");
+}
