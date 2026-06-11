@@ -319,7 +319,7 @@ pub fn explain(code: crate::diagnostic::LintCode) -> &'static str {
             "L020 object-naming\n\nManual p.64, Naming Objects: object names begin with an uppercase letter\n(spaces between constituents are fine). Flags an assignment to a\nlowercase-leading object that is not a declared local. Locals are L016's\n(lowercase) side of the same convention."
         }
         L021 => {
-            "L021 one-statement-per-line\n\nManual p.65, the first layout rule: one statement (and one declaration) per\nline. Flags the second and later statements sharing a line."
+            "L021 one-statement-per-line\n\nManual p.65, the first layout rule: one statement (and one declaration) per\nline. Flags the second and later statements sharing a line. --fix moves each\noffending statement onto its own line at the shared line's indentation."
         }
         L022 => {
             "L022 keyword-paren-spacing\n\nManual p.65: put a space between a keyword and a parenthesis — `if (a)`,\nnot `if(a)`; also when/is/expand. --fix inserts the space."

@@ -114,7 +114,11 @@ fn is_safe(before: &Cst, candidate: &str) -> bool {
 /// MISSING-token fills as [`tokens_equivalent`], so a mixed fix batch (e.g.
 /// L004 + L024) still validates as a whole.
 fn trees_equivalent_modulo_parens(before: &Cst, after: &Cst) -> bool {
-    fn eq(a: &Node, b: &Node) -> bool {
+    // Iterative pairwise compare (explicit worklist): this runs on every fix
+    // validation, and a recursive compare overflows the stack on the same
+    // deeply nested input the iterative rule walks were hardened for (#128).
+    let mut stack: Vec<(Node, Node)> = vec![(before.root(), after.root())];
+    while let Some((a, b)) = stack.pop() {
         // A paren wrapper only present on the after side is transparent.
         if b.kind() == Kind::ParenthesizedExpression && a.kind() != Kind::ParenthesizedExpression {
             let inner: Vec<Node> = b
@@ -122,19 +126,28 @@ fn trees_equivalent_modulo_parens(before: &Cst, after: &Cst) -> bool {
                 .into_iter()
                 .filter(|c| !matches!(c.kind(), Kind::LParen | Kind::RParen))
                 .collect();
-            return inner.len() == 1 && eq(a, &inner[0]);
+            if inner.len() != 1 {
+                return false;
+            }
+            stack.push((a, inner[0]));
+            continue;
         }
         let (ka, kb) = (a.children(), b.children());
         if ka.is_empty() && kb.is_empty() {
-            return (a.kind() == b.kind() && a.text() == b.text())
+            let leaf_ok = (a.kind() == b.kind() && a.text() == b.text())
                 || sanctioned(a.text(), b.text())
                 || (a.kind() == b.kind() && a.is_missing() && !b.is_missing());
+            if !leaf_ok {
+                return false;
+            }
+            continue;
         }
-        a.kind() == b.kind()
-            && ka.len() == kb.len()
-            && ka.iter().zip(kb.iter()).all(|(x, y)| eq(x, y))
+        if a.kind() != b.kind() || ka.len() != kb.len() {
+            return false;
+        }
+        stack.extend(ka.into_iter().zip(kb));
     }
-    eq(&before.root(), &after.root())
+    true
 }
 
 /// Greedily select the largest prefix-stable subset of `edits` that keeps the
@@ -144,49 +157,80 @@ fn trees_equivalent_modulo_parens(before: &Cst, after: &Cst) -> bool {
 fn safe_edit_subset(source: &str, before: &Cst, mut edits: Vec<Edit>) -> Vec<Edit> {
     edits.sort_by_key(|e| e.byte_range.start);
     edits.dedup();
-    let mut kept: Vec<Edit> = Vec::new();
-    for edit in edits {
-        let mut trial = kept.clone();
-        trial.push(edit.clone());
-        if is_safe(before, &apply_edits(source, trial.clone())) {
-            kept = trial;
+    // Track accepted *indices* and apply trials by reference: cloning the
+    // accepted Vec<Edit> per candidate made the selection O(N²) in bytes
+    // cloned on exactly the files that hit this fallback hardest (#129).
+    let mut kept: Vec<usize> = Vec::new();
+    for i in 0..edits.len() {
+        let trial: Vec<&Edit> = kept
+            .iter()
+            .map(|&j| &edits[j])
+            .chain(std::iter::once(&edits[i]))
+            .collect();
+        if is_safe(before, &apply_edit_refs(source, &trial)) {
+            kept.push(i);
         }
         // else: this edit (with the accepted set) is unsafe — drop just it.
     }
-    kept
+    let mut keep = vec![false; edits.len()];
+    for &i in &kept {
+        keep[i] = true;
+    }
+    edits
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(e, k)| k.then_some(e))
+        .collect()
 }
 
 /// Walk the tree and emit an insert-`;` edit at every zero-width MISSING
 /// semicolon node (a statement the parser recovered as missing its terminator).
-fn repair_missing_semicolons(node: &Node, edits: &mut Vec<Edit>) {
-    if node.is_missing() && node.kind() == Kind::Semicolon {
-        let at = node.byte_range().start;
-        edits.push(Edit {
-            byte_range: at..at,
-            replacement: ";".into(),
-        });
-        return;
-    }
-    for child in node.children() {
-        repair_missing_semicolons(&child, edits);
+///
+/// Iterative (explicit stack), matching `runner::walk`: a deeply nested
+/// expression chain must not crash `--fix` when plain linting survives it —
+/// worse here, since `--fix` is the destructive mode (#128).
+fn repair_missing_semicolons(root: &Node, edits: &mut Vec<Edit>) {
+    let mut stack: Vec<Node> = vec![*root];
+    while let Some(node) = stack.pop() {
+        if node.is_missing() && node.kind() == Kind::Semicolon {
+            let at = node.byte_range().start;
+            edits.push(Edit {
+                byte_range: at..at,
+                replacement: ";".into(),
+            });
+            // A MISSING node is a zero-width leaf; nothing lies beneath it.
+            continue;
+        }
+        stack.extend(node.children().into_iter().rev());
     }
 }
 
-fn collect_node_edits(reg: &Registry, node: &Node, source: &str, edits: &mut Vec<Edit>) {
-    for rule in reg.rules() {
-        rule.fix_node(node, source, edits);
-    }
-    for child in node.children() {
-        collect_node_edits(reg, &child, source, edits);
+/// Run every rule's `fix_node` over the tree, pre-order. Iterative for the same
+/// reason as [`repair_missing_semicolons`] (#128).
+fn collect_node_edits(reg: &Registry, root: &Node, source: &str, edits: &mut Vec<Edit>) {
+    let mut stack: Vec<Node> = vec![*root];
+    while let Some(node) = stack.pop() {
+        for rule in reg.rules() {
+            rule.fix_node(&node, source, edits);
+        }
+        stack.extend(node.children().into_iter().rev());
     }
 }
 
 /// Apply edits right-to-left after dropping any that overlap an earlier one.
-pub fn apply_edits(source: &str, mut edits: Vec<Edit>) -> String {
-    edits.sort_by_key(|e| e.byte_range.start);
-    let mut kept: Vec<Edit> = Vec::new();
+pub fn apply_edits(source: &str, edits: Vec<Edit>) -> String {
+    let refs: Vec<&Edit> = edits.iter().collect();
+    apply_edit_refs(source, &refs)
+}
+
+/// The borrowed counterpart of [`apply_edits`], so `safe_edit_subset`'s trial
+/// applications need not clone the accepted edit set each round (#129).
+fn apply_edit_refs(source: &str, edits: &[&Edit]) -> String {
+    let mut sorted: Vec<&Edit> = edits.to_vec();
+    sorted.sort_by_key(|e| e.byte_range.start);
+    let mut kept: Vec<&Edit> = Vec::new();
     let mut last_end = 0usize;
-    for e in edits {
+    for e in sorted {
         if e.byte_range.start >= last_end {
             last_end = e.byte_range.end;
             kept.push(e);
@@ -195,7 +239,7 @@ pub fn apply_edits(source: &str, mut edits: Vec<Edit>) -> String {
     }
     let mut out = source.to_string();
     for e in kept.into_iter().rev() {
-        out.replace_range(e.byte_range, &e.replacement);
+        out.replace_range(e.byte_range.clone(), &e.replacement);
     }
     out
 }
@@ -216,29 +260,29 @@ struct Tok {
     missing: bool,
 }
 
-/// Non-trivia leaf tokens in source order.
+/// Non-trivia leaf tokens in source order. Iterative for the same reason as
+/// the fixer walks: token collection runs on every fix validation and must not
+/// overflow on adversarial nesting (#128).
 fn semantic_tokens(cst: &Cst) -> Vec<Tok> {
     let mut out = Vec::new();
-    collect_tokens(&cst.root(), &mut out);
-    out
-}
-
-fn collect_tokens(node: &Node, out: &mut Vec<Tok>) {
-    let children = node.children();
-    if children.is_empty() {
-        match node.kind() {
-            Kind::LineComment | Kind::BlockComment => {}
-            k => out.push(Tok {
-                kind: k,
-                text: node.text().to_string(),
-                missing: node.is_missing(),
-            }),
+    let mut stack: Vec<Node> = vec![cst.root()];
+    while let Some(node) = stack.pop() {
+        let children = node.children();
+        if children.is_empty() {
+            match node.kind() {
+                Kind::LineComment | Kind::BlockComment => {}
+                k => out.push(Tok {
+                    kind: k,
+                    text: node.text().to_string(),
+                    missing: node.is_missing(),
+                }),
+            }
+            continue;
         }
-        return;
+        // Reverse push preserves source order on pop.
+        stack.extend(children.into_iter().rev());
     }
-    for c in children {
-        collect_tokens(&c, out);
-    }
+    out
 }
 
 fn tokens_equivalent(before: &Cst, after: &Cst) -> bool {
@@ -344,6 +388,51 @@ mod tests {
         assert!(m1_core::parse(&fixed).syntax_diagnostics().is_empty());
         // And it is a fixed point.
         assert_eq!(runner.fix_source_stable(&fixed).unwrap(), None);
+    }
+
+    #[test]
+    fn deeply_nested_expression_does_not_overflow_fix() {
+        // The runner's walk has been iterative since the stack-overflow DoS
+        // fix, but the fixer's walks stayed recursive — so a file that linted
+        // fine crashed `--fix` (#128). Both fixer walks must survive the same
+        // adversarial depth the runner test uses.
+        let reg = Registry::default();
+        let fixer = Fixer::new(&reg);
+        let source = format!("Out = {}1;\n", "1+".repeat(50_000));
+        // Must return (fix or no fix), not abort with SIGSEGV/SIGABRT.
+        let _ = fixer.fix_source(&source);
+    }
+
+    #[test]
+    fn safe_edit_subset_keeps_source_order_and_drops_unsafe() {
+        // Three candidate edits, the middle one unsafe: the subset keeps the
+        // outer two in source order. (Guards the index-tracking rewrite, #129.)
+        let src = "Result = 1;   \nValue = a + b;   \n";
+        let before = m1_core::parse(src);
+        let ws1 = src.find("   \n").unwrap();
+        let ws2 = src.rfind("   \n").unwrap();
+        let edits = vec![
+            Edit {
+                byte_range: ws1..ws1 + 3,
+                replacement: String::new(),
+            },
+            Edit {
+                // Renames `a` -> `zzz`: token change, unsafe.
+                byte_range: src.find('a').unwrap()..src.find('a').unwrap() + 1,
+                replacement: "zzz".into(),
+            },
+            Edit {
+                byte_range: ws2..ws2 + 3,
+                replacement: String::new(),
+            },
+        ];
+        let kept = safe_edit_subset(src, &before, edits);
+        assert_eq!(kept.len(), 2);
+        assert!(
+            kept.windows(2)
+                .all(|w| w[0].byte_range.start <= w[1].byte_range.start)
+        );
+        assert_eq!(apply_edits(src, kept), "Result = 1;\nValue = a + b;\n");
     }
 
     #[test]

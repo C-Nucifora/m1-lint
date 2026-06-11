@@ -150,18 +150,12 @@ impl Config {
     /// True if `path` matches any configured `exclude` glob, tested against both
     /// the full path and the bare file name (so `*.gen.m1scr` and
     /// `generated/*` both work).
+    ///
+    /// Compiles the globs on every call. A caller matching many paths against
+    /// one config (the CLI's file loop) should build an [`ExcludeMatcher`] once
+    /// instead (#127).
     pub fn is_excluded(&self, path: &Path) -> bool {
-        if self.exclude.is_empty() {
-            return false;
-        }
-        let full = path.to_string_lossy();
-        let name = path.file_name().map(|n| n.to_string_lossy());
-        self.exclude
-            .iter()
-            .any(|pat| match glob::Pattern::new(pat) {
-                Ok(p) => p.matches(&full) || name.as_deref().is_some_and(|n| p.matches(n)),
-                Err(_) => false,
-            })
+        ExcludeMatcher::new(self).is_excluded(path)
     }
 
     /// Apply select-then-ignore over the current `enabled` set.
@@ -247,6 +241,41 @@ impl Config {
             return Ok(true);
         }
         Ok(false)
+    }
+}
+
+/// The `exclude` globs of one [`Config`], pre-compiled. `glob::Pattern::new`
+/// re-parses the pattern text on every call, so testing N files against K
+/// patterns through [`Config::is_excluded`] costs K×N compilations; compiling
+/// once here makes it K (#127). Invalid patterns are skipped, matching
+/// `Config::is_excluded`'s historical behaviour.
+#[derive(Debug, Clone)]
+pub struct ExcludeMatcher {
+    patterns: Vec<glob::Pattern>,
+}
+
+impl ExcludeMatcher {
+    pub fn new(cfg: &Config) -> Self {
+        ExcludeMatcher {
+            patterns: cfg
+                .exclude
+                .iter()
+                .filter_map(|pat| glob::Pattern::new(pat).ok())
+                .collect(),
+        }
+    }
+
+    /// True if `path` matches any compiled glob, tested against both the full
+    /// path and the bare file name (so `*.gen.m1scr` and `generated/*` work).
+    pub fn is_excluded(&self, path: &Path) -> bool {
+        if self.patterns.is_empty() {
+            return false;
+        }
+        let full = path.to_string_lossy();
+        let name = path.file_name().map(|n| n.to_string_lossy());
+        self.patterns
+            .iter()
+            .any(|p| p.matches(&full) || name.as_deref().is_some_and(|n| p.matches(n)))
     }
 }
 
@@ -468,6 +497,24 @@ mod tests {
     #[test]
     fn no_exclude_skips_nothing() {
         assert!(!Config::default().is_excluded(Path::new("anything.m1scr")));
+    }
+
+    #[test]
+    fn exclude_matcher_agrees_with_config_is_excluded() {
+        let cfg = Config::from_toml_str("exclude = [\"*.gen.m1scr\", \"generated/*\"]\n").unwrap();
+        let m = ExcludeMatcher::new(&cfg);
+        for p in [
+            "foo.gen.m1scr",
+            "a/b/foo.gen.m1scr",
+            "generated/x.m1scr",
+            "src/real.m1scr",
+        ] {
+            assert_eq!(m.is_excluded(Path::new(p)), cfg.is_excluded(Path::new(p)));
+        }
+        // An invalid pattern is skipped, not fatal — same as is_excluded.
+        let bad = Config::from_toml_str("exclude = [\"[\", \"*.gen.m1scr\"]\n").unwrap();
+        assert!(ExcludeMatcher::new(&bad).is_excluded(Path::new("foo.gen.m1scr")));
+        assert!(!ExcludeMatcher::new(&bad).is_excluded(Path::new("real.m1scr")));
     }
 
     #[test]

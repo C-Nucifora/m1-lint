@@ -4,6 +4,11 @@
 //! line" and "Write only one declaration per line". A statement that starts
 //! on the same line its preceding sibling ends on (`a = 1; b = 2;`) flags —
 //! once per offending statement, anchored on the second one.
+//!
+//! `--fix` moves each offending statement onto its own line at the shared
+//! line's indentation (#130). Pure whitespace between the statements is
+//! replaced; a comment in the gap stays put (the newline is inserted just
+//! before the statement instead).
 
 use crate::diagnostic::{LintCode, LintDiagnostic};
 use crate::rules::Rule;
@@ -55,6 +60,46 @@ impl Rule for OneStatementPerLine {
             prev_end_line = Some(range.end.line);
         }
     }
+
+    fn fix_node(&self, node: &Node, source: &str, edits: &mut Vec<crate::fix::Edit>) {
+        if node.kind() != Kind::SourceFile && node.kind() != Kind::Block {
+            return;
+        }
+        let mut prev: Option<Node> = None;
+        for child in node.named_children() {
+            if !is_statement(child.kind()) {
+                continue;
+            }
+            if let Some(p) = &prev
+                && p.range().end.line == child.range().start.line
+            {
+                let start = child.byte_range().start;
+                // Indentation of the shared line: the statement moves to a new
+                // line at the same depth.
+                let line_start = source[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                let indent: String = source[line_start..]
+                    .chars()
+                    .take_while(|c| *c == ' ' || *c == '\t')
+                    .collect();
+                // Replace only the trailing whitespace run of the gap: a pure
+                // whitespace gap is replaced whole, while a comment in the gap
+                // stays on the first line (which also gains no trailing
+                // blanks). The token-safety check ignores comments, so the
+                // rule itself must not delete one.
+                let gap = p.byte_range().end..start;
+                let gap_text = &source[gap.clone()];
+                let keep = gap_text
+                    .rfind(|c: char| c != ' ' && c != '\t')
+                    .map(|i| i + gap_text[i..].chars().next().unwrap().len_utf8())
+                    .unwrap_or(0);
+                edits.push(crate::fix::Edit {
+                    byte_range: gap.start + keep..gap.end,
+                    replacement: format!("\n{indent}"),
+                });
+            }
+            prev = Some(child);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -100,5 +145,55 @@ mod tests {
         // offender unless they actually share a line.
         assert_eq!(count("x = a +\n    b;\ny = 1;\n"), 0);
         assert_eq!(count("x = a +\n    b; y = 1;\n"), 1);
+    }
+
+    fn fix(src: &str) -> Option<String> {
+        let mut r = Registry::empty();
+        r.register(Box::new(OneStatementPerLine));
+        Runner::new(r).fix_source_stable(src).unwrap()
+    }
+
+    #[test]
+    fn fix_splits_two_statements() {
+        assert_eq!(fix("a = 1; b = 2;\n").as_deref(), Some("a = 1;\nb = 2;\n"));
+    }
+
+    #[test]
+    fn fix_splits_three_statements_in_one_pass_run() {
+        assert_eq!(
+            fix("a = 1; b = 2; c = 3;\n").as_deref(),
+            Some("a = 1;\nb = 2;\nc = 3;\n")
+        );
+    }
+
+    #[test]
+    fn fix_preserves_block_indentation() {
+        // Statements inside a tab-indented block stay at the block's depth.
+        assert_eq!(
+            fix("if (a)\n{\n\tx = 1; y = 2;\n}\n").as_deref(),
+            Some("if (a)\n{\n\tx = 1;\n\ty = 2;\n}\n")
+        );
+    }
+
+    #[test]
+    fn fix_keeps_an_intervening_comment_on_the_first_line() {
+        // The comment between the statements must not be deleted (the token
+        // safety check ignores comments, so the rule itself must care).
+        assert_eq!(
+            fix("a = 1; /* note */ b = 2;\n").as_deref(),
+            Some("a = 1; /* note */\nb = 2;\n")
+        );
+    }
+
+    #[test]
+    fn fix_result_is_clean_and_stable() {
+        let fixed = fix("a = 1; b = 2;\n").unwrap();
+        assert_eq!(count(&fixed), 0);
+        assert_eq!(fix(&fixed), None);
+    }
+
+    #[test]
+    fn clean_source_yields_no_fix() {
+        assert_eq!(fix("a = 1;\nb = 2;\n"), None);
     }
 }
