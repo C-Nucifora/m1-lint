@@ -117,6 +117,7 @@ regressions. The adoption path for a legacy codebase.
 
 ```sh
 m1-lint <file.m1scr>...              # human-readable diagnostics
+m1-lint .                            # lint every .m1scr under a directory
 m1-lint --format json <file.m1scr>   # machine-readable JSON
 m1-lint --fix <file.m1scr>           # apply safe autofixes in place
 m1-lint --rules                      # list every rule (add --format json)

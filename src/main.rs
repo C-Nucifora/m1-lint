@@ -26,7 +26,8 @@ enum Format {
     after_help = "--fix makes minimal edits; for full canonical formatting use m1-fmt."
 )]
 struct Args {
-    /// Files to lint (a lone `-`, or no files, reads from stdin)
+    /// Files or directories to lint (directories are searched recursively for
+    /// `.m1scr`; a lone `-`, or no files, reads from stdin)
     files: Vec<PathBuf>,
 
     /// Filename to use when reading from stdin
@@ -157,7 +158,28 @@ fn main() {
         );
     }
 
-    for path in if use_stdin { &[][..] } else { &args.files[..] } {
+    // Directory arguments expand to every `.m1scr` beneath them via the shared
+    // hardened walk (#125). An empty expansion is reported per-path and treated
+    // like a per-file read error: flag the run, keep going, exit 1 — a mistyped
+    // path must not look like a clean tree.
+    let mut files: Vec<PathBuf> = Vec::new();
+    if !use_stdin {
+        for f in &args.files {
+            if f.is_dir() {
+                let found = m1_workspace::find_scripts(f);
+                if found.is_empty() {
+                    eprintln!("error: no .m1scr files found under {}", f.display());
+                    any_error = true;
+                } else {
+                    files.extend(found);
+                }
+            } else {
+                files.push(f.clone());
+            }
+        }
+    }
+
+    for path in &files {
         let cfg = resolve_config(&args, &select, &ignore, &m1_lint::config::dir_of(path));
 
         // Skip files matching an `exclude` glob from the config (#9).
@@ -167,18 +189,20 @@ fn main() {
 
         let runner = Runner::new(Registry::from_config(&cfg));
 
-        match runner.run_file(path) {
-            Ok(mut result) => {
+        // One tolerant read serves linting, baseline anchoring, and --diff. The
+        // strict `read_to_string().unwrap_or_default()` re-reads previously used
+        // for the latter two silently collapsed non-UTF-8 (Windows-1252) sources
+        // to "", losing the baseline's content anchor and making --diff disagree
+        // with --fix (#124).
+        match m1_workspace::read_text(path) {
+            Ok(source) => {
+                let mut result = runner.run_source(&source);
                 let display = path.display().to_string();
-                // The baseline anchors on line content, so it needs the source.
-                if baseline.is_some() || new_baseline.is_some() {
-                    let source = std::fs::read_to_string(path).unwrap_or_default();
-                    if let Some(b) = &baseline {
-                        b.filter(&display, &source, &mut result.diagnostics);
-                    }
-                    if let Some(nb) = &mut new_baseline {
-                        nb.record(&display, &source, &result.diagnostics);
-                    }
+                if let Some(b) = &baseline {
+                    b.filter(&display, &source, &mut result.diagnostics);
+                }
+                if let Some(nb) = &mut new_baseline {
+                    nb.record(&display, &source, &result.diagnostics);
                 }
                 if !result.syntax_errors.is_empty() {
                     any_error = true;
@@ -199,7 +223,6 @@ fn main() {
 
                 // --diff (#112): preview what --fix would change; never write.
                 if args.diff {
-                    let source = std::fs::read_to_string(path).unwrap_or_default();
                     match runner.fix_source_stable(&source) {
                         Ok(Some(fixed)) => {
                             print!(
