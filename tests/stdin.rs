@@ -16,12 +16,9 @@ fn run_with_stdin(args: &[&str], input: &str) -> Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .as_mut()
-        .unwrap()
-        .write_all(input.as_bytes())
-        .unwrap();
+    // A run that rejects its arguments exits without reading stdin; the write
+    // then sees EPIPE, which is fine — we only care about the child's output.
+    let _ = child.stdin.as_mut().unwrap().write_all(input.as_bytes());
     child.wait_with_output().unwrap()
 }
 
