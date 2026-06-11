@@ -26,8 +26,12 @@ enum Format {
     after_help = "--fix makes minimal edits; for full canonical formatting use m1-fmt."
 )]
 struct Args {
-    /// Files to lint
+    /// Files to lint (a lone `-`, or no files, reads from stdin)
     files: Vec<PathBuf>,
+
+    /// Filename to use when reading from stdin
+    #[arg(long, default_value = "<stdin>")]
+    stdin_filename: String,
 
     /// Output format
     #[arg(long, value_enum, default_value_t = Format::Human)]
@@ -111,10 +115,6 @@ fn main() {
         }
     }
 
-    if args.files.is_empty() {
-        fail("no input files");
-    }
-
     // Split a `--select`/`--ignore` comma list into trimmed, non-empty codes.
     let select = args.select.as_deref().map(split_codes);
     let ignore = args.ignore.as_deref().map(split_codes);
@@ -137,47 +137,28 @@ fn main() {
         .map(|_| m1_lint::baseline::Baseline::default());
     let mut any_diff = false;
 
-    for path in &args.files {
-        // Resolve config, lowest layer first: the unified m1-tools.toml, then the
-        // tool-specific file (explicit --config, else discovered .m1lint.toml /
-        // user-global), then CLI flags. So a project can be configured entirely
-        // from m1-tools.toml; a .m1lint.toml still works and overrides it.
-        let dir = m1_lint::config::dir_of(path);
-        let mut cfg = Config::default();
-        if let Some(tc) = m1_workspace::config::M1ToolsConfig::discover(&dir)
-            && let Err(e) = cfg.apply_tools_config(&tc)
-        {
-            cfg_fail(e);
-        }
-        match &args.config {
-            Some(p) => {
-                let text = std::fs::read_to_string(p)
-                    .unwrap_or_else(|e| fail(&format!("could not read {}: {e}", p.display())));
-                if let Err(e) = cfg.apply_toml_str(&text) {
-                    cfg_fail(e);
-                }
-            }
-            None => {
-                if let Err(e) = cfg.apply_discovered_file(&dir) {
-                    cfg_fail(e);
-                }
-            }
-        }
-        if let Some(n) = args.max_line_length {
-            cfg.max_line_length = n;
-        }
-        if let Some(n) = args.max_nesting_depth {
-            cfg.max_nesting_depth = n;
-        }
-        if let Some(n) = args.max_complexity {
-            cfg.max_complexity = n;
-        }
-        if let Some(n) = args.max_cognitive_complexity {
-            cfg.max_cognitive_complexity = n;
-        }
-        if let Err(e) = cfg.apply_filters(select.clone(), ignore.clone()) {
-            cfg_fail(e);
-        }
+    // stdin input (#119): a lone `-`, or no files at all, lints stdin —
+    // mirroring m1-fmt's CLI surface. A `-` mixed with real paths is ambiguous.
+    let use_stdin =
+        args.files.is_empty() || (args.files.len() == 1 && args.files[0].as_os_str() == "-");
+    if !use_stdin && args.files.iter().any(|f| f.as_os_str() == "-") {
+        fail("`-` (stdin) cannot be combined with file paths");
+    }
+    if use_stdin {
+        run_stdin(
+            &args,
+            &select,
+            &ignore,
+            baseline.as_ref(),
+            new_baseline.as_mut(),
+            &mut json_files,
+            &mut any_error,
+            &mut any_diff,
+        );
+    }
+
+    for path in if use_stdin { &[][..] } else { &args.files[..] } {
+        let cfg = resolve_config(&args, &select, &ignore, &m1_lint::config::dir_of(path));
 
         // Skip files matching an `exclude` glob from the config (#9).
         if cfg.is_excluded(path) {
@@ -291,6 +272,144 @@ fn main() {
     if any_error || (args.diff && any_diff) {
         process::exit(1);
     }
+}
+
+/// Lint stdin (#119): read the whole input through the tolerant workspace
+/// decoder, resolve config from `--stdin-filename`'s directory (else the CWD),
+/// and report under that name. `--fix` writes the fixed source to stdout
+/// (in-place is meaningless), so it cannot be combined with a machine format
+/// that also claims stdout.
+#[allow(clippy::too_many_arguments)]
+fn run_stdin(
+    args: &Args,
+    select: &Option<Vec<String>>,
+    ignore: &Option<Vec<String>>,
+    baseline: Option<&m1_lint::baseline::Baseline>,
+    new_baseline: Option<&mut m1_lint::baseline::Baseline>,
+    json_files: &mut Vec<(String, m1_lint::runner::RunResult)>,
+    any_error: &mut bool,
+    any_diff: &mut bool,
+) {
+    if args.fix && !args.diff && args.format != Format::Human {
+        fail(
+            "--fix on stdin writes the fixed source to stdout; it cannot be combined with --format json/sarif",
+        );
+    }
+
+    let display = args.stdin_filename.clone();
+    let pseudo = PathBuf::from(&args.stdin_filename);
+    // Parent of a bare filename is the empty path; discover from the CWD then.
+    let dir = match pseudo.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    let cfg = resolve_config(args, select, ignore, &dir);
+    let runner = Runner::new(Registry::from_config(&cfg));
+
+    // Read stdin as bytes and decode through the same tolerant workspace
+    // decoder the file path uses (MoTeC sources may carry Windows-1252 bytes).
+    let mut bytes = Vec::new();
+    if let Err(e) = std::io::Read::read_to_end(&mut std::io::stdin(), &mut bytes) {
+        fail(&format!("{display}: {e}"));
+    }
+    let source = m1_workspace::decode(bytes);
+
+    let mut result = runner.run_source(&source);
+    if let Some(b) = baseline {
+        b.filter(&display, &source, &mut result.diagnostics);
+    }
+    if let Some(nb) = new_baseline {
+        nb.record(&display, &source, &result.diagnostics);
+    }
+    if !result.syntax_errors.is_empty()
+        || result
+            .diagnostics
+            .iter()
+            .any(|d| d.inner.severity == m1_core::Severity::Error)
+    {
+        *any_error = true;
+    }
+    match args.format {
+        Format::Human => eprint!("{}", report::render_human(&display, &result)),
+        Format::Json | Format::Sarif => json_files.push((display.clone(), result)),
+    }
+
+    if args.diff {
+        match runner.fix_source_stable(&source) {
+            Ok(Some(fixed)) => {
+                print!(
+                    "{}",
+                    m1_workspace::diff::unified_diff(&display, &source, &fixed)
+                );
+                *any_diff = true;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("warning: could not compute fixes for {display}: {e}");
+                *any_error = true;
+            }
+        }
+    } else if args.fix {
+        match runner.fix_source_stable(&source) {
+            Ok(Some(fixed)) => print!("{fixed}"),
+            Ok(None) => print!("{source}"),
+            Err(e) => {
+                // Pass the input through so a pipeline never loses data.
+                print!("{source}");
+                eprintln!("warning: could not fix {display}: {e}");
+                *any_error = true;
+            }
+        }
+    }
+}
+
+/// Resolve the effective [`Config`] for a lint target, lowest layer first: the
+/// unified m1-tools.toml, then the tool-specific file (explicit `--config`,
+/// else discovered `.m1lint.toml` / user-global), then CLI flags. So a project
+/// can be configured entirely from m1-tools.toml; a .m1lint.toml still works
+/// and overrides it.
+fn resolve_config(
+    args: &Args,
+    select: &Option<Vec<String>>,
+    ignore: &Option<Vec<String>>,
+    dir: &std::path::Path,
+) -> Config {
+    let mut cfg = Config::default();
+    if let Some(tc) = m1_workspace::config::M1ToolsConfig::discover(dir)
+        && let Err(e) = cfg.apply_tools_config(&tc)
+    {
+        cfg_fail(e);
+    }
+    match &args.config {
+        Some(p) => {
+            let text = std::fs::read_to_string(p)
+                .unwrap_or_else(|e| fail(&format!("could not read {}: {e}", p.display())));
+            if let Err(e) = cfg.apply_toml_str(&text) {
+                cfg_fail(e);
+            }
+        }
+        None => {
+            if let Err(e) = cfg.apply_discovered_file(dir) {
+                cfg_fail(e);
+            }
+        }
+    }
+    if let Some(n) = args.max_line_length {
+        cfg.max_line_length = n;
+    }
+    if let Some(n) = args.max_nesting_depth {
+        cfg.max_nesting_depth = n;
+    }
+    if let Some(n) = args.max_complexity {
+        cfg.max_complexity = n;
+    }
+    if let Some(n) = args.max_cognitive_complexity {
+        cfg.max_cognitive_complexity = n;
+    }
+    if let Err(e) = cfg.apply_filters(select.clone(), ignore.clone()) {
+        cfg_fail(e);
+    }
+    cfg
 }
 
 fn fail(msg: &str) -> ! {
