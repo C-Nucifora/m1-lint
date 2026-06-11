@@ -117,15 +117,17 @@ pub fn render_json(files: &[(String, RunResult)]) -> String {
     out
 }
 
-/// The full rule catalogue as JSON (schema version 1):
-/// `{"version":1,"rules":[{"code","name","fixable"},…]}`.
+/// The full rule catalogue as JSON (schema version 2):
+/// `{"version":2,"rules":[{"code","name","severity","fixable","summary"},…]}`.
 ///
 /// Sourced directly from [`crate::diagnostic::LintCode`] — the single source of
 /// truth for the rule set — so external consumers (editor plugins, docs) can
 /// enumerate the rules without copying the list and drifting out of sync.
+/// `severity` is the rule's static default (`"error"`/`"warning"`); `summary`
+/// is the one-line README-table description. v2 is additive over v1 (#118).
 pub fn render_rules_json() -> String {
     use crate::diagnostic::LintCode;
-    let mut out = String::from("{\"version\":1,\"rules\":[");
+    let mut out = String::from("{\"version\":2,\"rules\":[");
     for (i, code) in LintCode::all_codes().iter().enumerate() {
         if i > 0 {
             out.push(',');
@@ -134,7 +136,11 @@ pub fn render_rules_json() -> String {
         esc(&code.to_string(), &mut out);
         out.push_str(",\"name\":");
         esc(code.name(), &mut out);
+        out.push_str(",\"severity\":");
+        esc(code.severity(), &mut out);
         let _ = write!(out, ",\"fixable\":{}", code.fixable());
+        out.push_str(",\"summary\":");
+        esc(code.summary(), &mut out);
         out.push('}');
     }
     out.push_str("]}");
@@ -359,7 +365,7 @@ mod tests {
     fn rules_json_covers_every_code() {
         use crate::diagnostic::LintCode;
         let json = render_rules_json();
-        assert!(json.starts_with("{\"version\":1,\"rules\":["));
+        assert!(json.starts_with("{\"version\":2,\"rules\":["));
         // Every code, name and fixable flag is present and matches LintCode.
         for code in LintCode::all_codes() {
             assert!(
@@ -369,10 +375,33 @@ mod tests {
             assert!(json.contains(&format!("\"name\":\"{}\"", code.name())));
         }
         // L004 is fixable, L001 is not.
-        assert!(
-            json.contains("\"code\":\"L004\",\"name\":\"eq-operator-preferred\",\"fixable\":true")
-        );
-        assert!(json.contains("\"code\":\"L001\",\"name\":\"line-too-long\",\"fixable\":false"));
+        assert!(json.contains(
+            "\"code\":\"L004\",\"name\":\"eq-operator-preferred\",\"severity\":\"warning\",\"fixable\":true"
+        ));
+        assert!(json.contains(
+            "\"code\":\"L001\",\"name\":\"line-too-long\",\"severity\":\"warning\",\"fixable\":false"
+        ));
+    }
+
+    #[test]
+    fn every_rule_has_severity_and_summary() {
+        // Schema v2 (#118): a new rule cannot ship without both — the macro
+        // requires the literals, and this guards their contents.
+        use crate::diagnostic::LintCode;
+        for code in LintCode::all_codes() {
+            assert!(
+                matches!(code.severity(), "error" | "warning"),
+                "{code} severity"
+            );
+            assert!(!code.summary().is_empty(), "{code} has a summary");
+            assert!(
+                code.summary().len() <= 80,
+                "{code} summary should stay one line"
+            );
+        }
+        // The one error-severity rule today; everything else warns. The
+        // catalogue value must match what the rule actually emits.
+        assert_eq!(LintCode::L006.severity(), "error");
     }
 
     #[test]
