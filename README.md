@@ -120,6 +120,7 @@ m1-lint <file.m1scr>...              # human-readable diagnostics
 m1-lint --format json <file.m1scr>   # machine-readable JSON
 m1-lint --fix <file.m1scr>           # apply safe autofixes in place
 m1-lint --rules                      # list every rule (add --format json)
+git show :Foo.m1scr | m1-lint -      # lint stdin (--stdin-filename names it)
 m1-lint --explain L022               # one rule's full rationale and fix behaviour
 m1-lint --fix --diff <file.m1scr>    # preview --fix as a unified diff (writes nothing)
 m1-lint --format sarif <files>       # SARIF 2.1.0 for GitHub code scanning etc.
