@@ -231,10 +231,32 @@ mod tests {
         // stack and aborts the process (SIGABRT); the iterative walk must
         // return normally at any depth, even for line-only rules. Regression
         // for the stack-overflow crash/DoS.
+        //
+        // Runs on a deliberately small 512 KiB stack so a reintroduced
+        // recursive walk overflows deterministically at this depth — which
+        // lets the depth stay at 5k (the suite ran the original 50k variant
+        // in ~2 minutes, #142; that full depth is kept as the ignored stress
+        // test below for release validation).
+        std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(|| {
+                let runner = Runner::new(Registry::default());
+                let source = format!("Out = {}1;\n", "1+".repeat(5_000));
+                let result = runner.run_source(&source);
+                // It returns without panicking; the diagnostics are irrelevant.
+                let _ = result.diagnostics.len();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    #[ignore = "stress: full 50k adversarial depth, ~2 min — run with --ignored for release validation"]
+    fn deeply_nested_expression_stress_full_depth() {
         let runner = Runner::new(Registry::default());
         let source = format!("Out = {}1;\n", "1+".repeat(50_000));
         let result = runner.run_source(&source);
-        // It returns without panicking; the exact diagnostics are irrelevant.
         let _ = result.diagnostics.len();
     }
 

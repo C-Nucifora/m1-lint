@@ -396,10 +396,31 @@ mod tests {
         // fix, but the fixer's walks stayed recursive — so a file that linted
         // fine crashed `--fix` (#128). Both fixer walks must survive the same
         // adversarial depth the runner test uses.
+        //
+        // Same small-stack scheme as the runner regression (#142): 512 KiB
+        // stack + 5k depth catches a reintroduced recursive walk while
+        // keeping the default suite fast; the ignored stress test below
+        // keeps the original 50k depth for release validation.
+        std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(|| {
+                let reg = Registry::default();
+                let fixer = Fixer::new(&reg);
+                let source = format!("Out = {}1;\n", "1+".repeat(5_000));
+                // Must return (fix or no fix), not abort with SIGSEGV/SIGABRT.
+                let _ = fixer.fix_source(&source);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    #[ignore = "stress: full 50k adversarial depth, ~2 min — run with --ignored for release validation"]
+    fn deeply_nested_expression_stress_full_depth() {
         let reg = Registry::default();
         let fixer = Fixer::new(&reg);
         let source = format!("Out = {}1;\n", "1+".repeat(50_000));
-        // Must return (fix or no fix), not abort with SIGSEGV/SIGABRT.
         let _ = fixer.fix_source(&source);
     }
 
