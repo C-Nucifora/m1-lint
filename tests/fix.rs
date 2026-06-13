@@ -63,6 +63,10 @@ fn fix_l024_ternary() {
     run_fix("l024_ternary");
 }
 #[test]
+fn fix_l024_ternary_ops() {
+    run_fix("l024_ternary_ops");
+}
+#[test]
 fn fix_l026_top_indent() {
     run_fix("l026_top_indent");
 }
