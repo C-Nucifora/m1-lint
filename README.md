@@ -38,6 +38,117 @@ The defaults follow the M1 Development Manual (tab indentation, layout and
 naming conventions); deviation is a config choice, not the default. A few
 deliberately noisy rules are opt-in — see `--rules`.
 
+## Rules
+
+The catalogue is also available at runtime via `m1-lint --rules` (and
+`--rules --format json`, the machine-readable single source of truth). Each
+rule's SARIF `helpUri` deep-links to its heading below, so a GitHub code-scanning
+alert's "View rule" link lands on the right entry.
+
+### line-too-long (L001)
+
+Line exceeds the configured maximum length. Severity: warning.
+
+### trailing-whitespace (L002)
+
+Trailing whitespace at end of line. Severity: warning · auto-fixable (`--fix`).
+
+### missing-final-newline (L003)
+
+File does not end with a newline. Severity: warning · auto-fixable (`--fix`).
+
+### eq-operator-preferred (L004)
+
+Prefer `eq`/`neq` over `==`/`!=`. Severity: warning · auto-fixable (`--fix`).
+
+### logical-operator-preferred (L005)
+
+Prefer the spelled logical operators (and/or/not). Severity: warning · auto-fixable (`--fix`).
+
+### float-eq-comparison (L006)
+
+Float compared with an equality operator. Severity: error.
+
+### operator-spacing (L007)
+
+Missing space around an operator. Severity: warning · auto-fixable (`--fix`).
+
+### nesting-too-deep (L008)
+
+Block nesting exceeds the configured depth. Severity: warning.
+
+### cyclomatic-complexity (L009)
+
+Cyclomatic complexity exceeds the configured ceiling. Severity: warning.
+
+### indentation-style (L010)
+
+Indentation does not match the configured style. Severity: warning.
+
+### comment-style (L011)
+
+`//` comment needs a space after the slashes. Severity: warning · auto-fixable (`--fix`).
+
+### unused-local (L012)
+
+Local binding is never used. Severity: warning.
+
+### expand-undefined-variable (L014)
+
+Expand body references an undefined $(VAR). Severity: warning.
+
+### local-missing-initializer (L015)
+
+Local declared without an initializer. Severity: warning.
+
+### local-variable-naming (L016)
+
+Local name does not follow the naming convention. Severity: warning.
+
+### magic-number (L017)
+
+Unnamed numeric literal (magic number). Severity: warning.
+
+### semicolon-spacing (L018)
+
+Incorrect spacing around a semicolon. Severity: warning · auto-fixable (`--fix`).
+
+### cognitive-complexity (L019)
+
+Cognitive complexity exceeds the configured ceiling. Severity: warning.
+
+### object-naming (L020)
+
+Object names begin with an uppercase letter. Severity: warning.
+
+### one-statement-per-line (L021)
+
+Write only one statement per line. Severity: warning · auto-fixable (`--fix`).
+
+### keyword-paren-spacing (L022)
+
+Put a space between a keyword and its parenthesis. Severity: warning · auto-fixable (`--fix`).
+
+### call-paren-spacing (L023)
+
+No space between a function name and its parenthesis. Severity: warning · auto-fixable (`--fix`).
+
+### ternary-condition-parens (L024)
+
+Wrap a ternary condition in parentheses. Severity: warning · auto-fixable (`--fix`).
+
+### local-scope-too-wide (L025)
+
+Local declared in a wider scope than its uses need. Severity: warning.
+
+### top-level-indentation (L026)
+
+Top-level code begins in the first column. Severity: warning · auto-fixable (`--fix`).
+
+### file-final-blank-line (L027)
+
+Function/method script ends with a blank line. Severity: warning · auto-fixable (`--fix`).
+
 ## Configuration and workflow
 
 Rule selection, thresholds, and indent style live in a `.m1lint.toml`

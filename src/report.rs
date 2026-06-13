@@ -197,7 +197,7 @@ pub fn render_sarif(files: &[(String, RunResult)]) -> String {
             json!({
                 "id": c.to_string(),
                 "name": c.name(),
-                "helpUri": format!("https://github.com/C-Nucifora/m1-lint#{}", c.name()),
+                "helpUri": format!("https://github.com/C-Nucifora/m1-lint#{}", c.help_anchor()),
                 "properties": {"fixable": c.fixable()},
             })
         })
@@ -418,5 +418,51 @@ mod tests {
             assert!(text.contains(&code.to_string()), "missing {code}");
         }
         assert!(text.contains("(fixable)"));
+    }
+
+    /// GitHub's heading-anchor slug: lowercase, drop everything but
+    /// alphanumerics / spaces / hyphens, then spaces -> hyphens.
+    fn gh_slug(heading: &str) -> String {
+        let kept: String = heading
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-')
+            .collect();
+        kept.split_whitespace().collect::<Vec<_>>().join("-")
+    }
+
+    // #148: every SARIF helpUri fragment must resolve to a real README anchor,
+    // or code-scanning "View rule" links are dead. Slugify the README's `### `
+    // headings the way GitHub does and assert each rule's anchor is present.
+    #[test]
+    fn every_rule_help_anchor_resolves_to_a_readme_heading() {
+        use crate::diagnostic::LintCode;
+        let readme = include_str!("../README.md");
+        let anchors: std::collections::HashSet<String> = readme
+            .lines()
+            .filter_map(|l| l.strip_prefix("### "))
+            .map(gh_slug)
+            .collect();
+        for code in LintCode::all_codes() {
+            let frag = code.help_anchor();
+            assert!(
+                anchors.contains(&frag),
+                "{code}: SARIF helpUri fragment `#{frag}` has no matching README \
+                 `### {} ({code})` heading — add it to the ## Rules section",
+                code.name()
+            );
+        }
+    }
+
+    // The emitted SARIF actually carries the anchored helpUri (not the old
+    // bare-name fragment that never resolved).
+    #[test]
+    fn sarif_helpuri_uses_the_rule_anchor() {
+        let runner = Runner::new(Registry::default());
+        let result = runner.run_source("X = a == b;\n");
+        let sarif = render_sarif(&[("Demo.m1scr".to_string(), result)]);
+        assert!(sarif.contains("m1-lint#eq-operator-preferred-l004"));
+        // and not the old bare-name fragment that never resolved.
+        assert!(!sarif.contains("m1-lint#eq-operator-preferred\""));
     }
 }
