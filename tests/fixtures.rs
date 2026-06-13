@@ -103,3 +103,94 @@ fn fixture_l010_spaces() {
 fn fixture_l011_comment() {
     run_fixture("l011_comment");
 }
+#[test]
+fn fixture_l014_expand_undef() {
+    run_fixture("l014_expand_undef");
+}
+#[test]
+fn fixture_l015_local_no_init() {
+    run_fixture("l015_local_no_init");
+}
+#[test]
+fn fixture_l016_local_naming() {
+    run_fixture("l016_local_naming");
+}
+#[test]
+fn fixture_l018_semicolon_space() {
+    run_fixture("l018_semicolon_space");
+}
+#[test]
+fn fixture_l020_object_naming() {
+    run_fixture("l020_object_naming");
+}
+#[test]
+fn fixture_l021_one_stmt() {
+    run_fixture("l021_one_stmt");
+}
+#[test]
+fn fixture_l022_kw_paren() {
+    run_fixture("l022_kw_paren");
+}
+#[test]
+fn fixture_l023_call_paren() {
+    run_fixture("l023_call_paren");
+}
+#[test]
+fn fixture_l024_ternary_parens() {
+    run_fixture("l024_ternary_parens");
+}
+#[test]
+fn fixture_l025_local_scope() {
+    run_fixture("l025_local_scope");
+}
+#[test]
+fn fixture_l026_top_indent() {
+    run_fixture("l026_top_indent");
+}
+
+// L017 (magic-number) and L027 (file-final-blank-line) are opt-in rules not
+// included in Registry::default(), so they cannot use run_fixture. They are
+// exercised here with an explicit opt-in registry using the public rule structs.
+
+#[test]
+fn fixture_l017_magic_number() {
+    use m1_lint::diagnostic::LintCode;
+    use m1_lint::rules::l017_magic_number::MagicNumber;
+
+    let mut reg = Registry::empty();
+    reg.register(Box::new(MagicNumber));
+    let runner = Runner::new(reg);
+    let src = "Energy = Power * 0.05;\n";
+    let result = runner.run_source(src);
+    let found = result.diagnostics.iter().any(|d| {
+        d.code == LintCode::L017
+            && d.inner.range.start.line + 1 == 1
+            && d.inner.message.contains("magic number `0.05`")
+    });
+    assert!(
+        found,
+        "expected L017 for magic number 0.05.\nActual:\n{:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn fixture_l027_final_blank_line() {
+    use m1_lint::diagnostic::LintCode;
+    use m1_lint::rules::l027_file_final_blank_line::FileFinalBlankLine;
+
+    let mut reg = Registry::empty();
+    reg.register(Box::new(FileFinalBlankLine));
+    let runner = Runner::new(reg);
+    let src = "x = 1;\n";
+    let result = runner.run_source(src);
+    let found = result
+        .diagnostics
+        .iter()
+        .any(|d| d.code == LintCode::L027 && d.inner.message.contains("end with a blank line"));
+    assert!(
+        found,
+        "expected L027 for missing final blank line.\nActual:\n{:#?}",
+        result.diagnostics
+    );
+}

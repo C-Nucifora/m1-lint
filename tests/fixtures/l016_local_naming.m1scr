@@ -1,0 +1,2 @@
+local FooBar = 1;
+Value = FooBar;

@@ -1,0 +1,6 @@
+local sum = 0;
+if (a)
+{
+	sum = sum + 1;
+	Out = sum;
+}
