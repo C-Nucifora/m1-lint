@@ -232,6 +232,17 @@ impl LintCode {
             .copied()
             .find(|c| c.to_string() == s)
     }
+
+    /// The README anchor fragment for this rule's `## Rules` subheading, used as
+    /// the SARIF `helpUri` fragment so a code-scanning alert deep-links to the
+    /// rule's docs. Matches GitHub's auto-generated slug for the heading
+    /// `### <name> (<CODE>)` — lowercased, parentheses dropped, spaces to
+    /// hyphens — i.e. `<name>-<code-lowercased>` (e.g. `line-too-long-l001`).
+    /// A regression test asserts every fragment resolves to a real README
+    /// anchor so this can't rot (#148).
+    pub fn help_anchor(&self) -> String {
+        format!("{}-{}", self.name(), self.to_string().to_lowercase())
+    }
 }
 
 /// A diagnostic emitted by a lint rule.
