@@ -30,6 +30,22 @@ fn is_float_literal(node: &Node) -> bool {
     text.contains('.') || text.to_ascii_lowercase().contains('e')
 }
 
+/// Peels any number of `ParenthesizedExpression` wrappers and returns the
+/// innermost node.  For `(((1.5)))` this returns the `Number` node `1.5`.
+/// For any other node it is a no-op.
+fn unwrap_parens<'a>(node: &Node<'a>) -> Node<'a> {
+    let mut cur = *node;
+    while cur.kind() == Kind::ParenthesizedExpression {
+        // A parenthesized_expression has exactly one named child: its inner
+        // expression.  If (unexpectedly) it has none, stop peeling.
+        match cur.named_children().into_iter().next() {
+            Some(inner) => cur = inner,
+            None => break,
+        }
+    }
+    cur
+}
+
 /// Returns true if the node is an equality operator token.
 ///
 /// Both the symbolic (`==`, `!=`) and the keyword (`eq`, `neq`) forms are
@@ -75,7 +91,9 @@ impl Rule for FloatEqComparison {
         if !has_eq_op {
             return;
         }
-        let has_float = children.iter().any(is_float_literal);
+        // Check direct children AND see through any parenthesized-expression
+        // wrappers so that `a eq (1.5)` is caught as well as `a eq 1.5`.
+        let has_float = children.iter().any(|c| is_float_literal(&unwrap_parens(c)));
         if has_float {
             diags.push(LintDiagnostic::new(
                 LintCode::L006,
@@ -122,14 +140,17 @@ impl Rule for FloatEqComparison {
             if !children.iter().any(|c| is_eq_op(c.kind())) {
                 continue;
             }
-            // `check_node` already reports a comparison that has a float literal.
-            if children.iter().any(is_float_literal) {
+            // `check_node` already reports a comparison that has a float literal
+            // (including one wrapped in parentheses — see `unwrap_parens`).
+            if children.iter().any(|c| is_float_literal(&unwrap_parens(c))) {
                 continue;
             }
-            let touches_float_local = n
-                .named_children()
-                .iter()
-                .any(|c| c.kind() == Kind::Identifier && float_locals.contains(c.text()));
+            // Check named children but also peel parentheses so that `(f) eq 2`
+            // is caught when `f` is a float-typed local.
+            let touches_float_local = n.named_children().iter().any(|c| {
+                let inner = unwrap_parens(c);
+                inner.kind() == Kind::Identifier && float_locals.contains(inner.text())
+            });
             if touches_float_local {
                 diags.push(LintDiagnostic::new(
                     LintCode::L006,
@@ -263,6 +284,73 @@ mod tests {
                 .count(),
             1,
             "exactly one L006: {:?}",
+            result.diagnostics
+        );
+    }
+
+    // --- parenthesized operand tests ---
+
+    #[test]
+    fn flags_paren_float_literal_rhs() {
+        // x = a eq (1.5)  — float literal wrapped in parens on RHS
+        let source = "x = a eq (1.5);\n";
+        let result = runner().run_source(source);
+        assert!(
+            result.diagnostics.iter().any(|d| d.code == LintCode::L006),
+            "paren-wrapped float literal on RHS should flag: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn flags_paren_float_local_lhs() {
+        // local f = 1.5; y = (f) eq 2  — float local wrapped in parens on LHS
+        let source = "local f = 1.5;\ny = (f) eq 2;\n";
+        let result = runner().run_source(source);
+        assert!(
+            result.diagnostics.iter().any(|d| d.code == LintCode::L006),
+            "paren-wrapped float local on LHS should flag: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn flags_both_operands_parenthesized() {
+        // local f = 1.5; z = (f) eq (2.0)  — both operands paren-wrapped
+        let source = "local f = 1.5;\nz = (f) eq (2.0);\n";
+        let result = runner().run_source(source);
+        assert_eq!(
+            result
+                .diagnostics
+                .iter()
+                .filter(|d| d.code == LintCode::L006)
+                .count(),
+            1,
+            "both paren-wrapped operands: exactly one L006: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn no_false_positive_paren_int_literal() {
+        // x = a == (1)  — int in parens must NOT flag
+        let source = "x = a == (1);\n";
+        let result = runner().run_source(source);
+        assert!(
+            result.diagnostics.iter().all(|d| d.code != LintCode::L006),
+            "paren-wrapped int literal should not flag: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn no_false_positive_paren_ident_not_float_local() {
+        // local n = 1; x = (n) eq 2  — non-float local in parens must NOT flag
+        let source = "local n = 1;\nx = (n) eq 2;\n";
+        let result = runner().run_source(source);
+        assert!(
+            result.diagnostics.iter().all(|d| d.code != LintCode::L006),
+            "paren-wrapped non-float local should not flag: {:?}",
             result.diagnostics
         );
     }
