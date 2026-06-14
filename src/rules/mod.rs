@@ -64,6 +64,30 @@ pub(crate) fn keyword_operator_edit(
     }
 }
 
+/// Whether `kind` opens a complexity scope: the top-level [`SourceFile`] and
+/// each [`WhenStatement`] are scored independently for both the cyclomatic
+/// (L009) and cognitive (L019) complexity rules.
+///
+/// Both rules depend on this single definition so their notion of "a scope"
+/// stays in lock-step: L019 explicitly mirrors L009's scope model (a nested
+/// `when` is its own scope, not counted toward its parent). If the grammar ever
+/// adds another scope construct (e.g. a user-function body), editing this one
+/// predicate updates both rules together — a one-sided change can no longer make
+/// the two complexity rules silently disagree about what a scope is.
+///
+/// This lives here rather than in `m1-core::kind_pred` because `kind_pred` is
+/// for operator-token groupings shared across m1-fmt/m1-typecheck; `when`/scope
+/// is a structural-node concept currently private to m1-lint's complexity rules.
+///
+/// [`SourceFile`]: m1_core::Kind::SourceFile
+/// [`WhenStatement`]: m1_core::Kind::WhenStatement
+pub(crate) fn is_complexity_scope(kind: m1_core::Kind) -> bool {
+    matches!(
+        kind,
+        m1_core::Kind::WhenStatement | m1_core::Kind::SourceFile
+    )
+}
+
 /// A lint rule.
 ///
 /// Rules implement one or both of [`check_file`][Rule::check_file] and
@@ -118,5 +142,28 @@ pub trait Rule: Send + Sync {
     /// Emit autofix edits at file scope. Default: no fix.
     fn fix_file(&self, source: &str, lines: &[&str], edits: &mut Vec<crate::fix::Edit>) {
         let _ = (source, lines, edits);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_complexity_scope;
+    use m1_core::Kind;
+
+    #[test]
+    fn complexity_scope_covers_source_file_and_when() {
+        // The two scope constructs L009 and L019 score independently.
+        assert!(is_complexity_scope(Kind::SourceFile));
+        assert!(is_complexity_scope(Kind::WhenStatement));
+    }
+
+    #[test]
+    fn complexity_scope_excludes_non_scope_constructs() {
+        // Control-flow that lives *inside* a scope is not itself a scope.
+        assert!(!is_complexity_scope(Kind::IfStatement));
+        assert!(!is_complexity_scope(Kind::ElseClause));
+        assert!(!is_complexity_scope(Kind::ExpandStatement));
+        assert!(!is_complexity_scope(Kind::IsClause));
+        assert!(!is_complexity_scope(Kind::Block));
     }
 }
