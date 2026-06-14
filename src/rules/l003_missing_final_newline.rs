@@ -31,10 +31,15 @@ impl Rule for MissingFinalNewline {
             end: pos,
         };
 
+        // Point at a zero-width EOF span, matching the insertion point of the
+        // fixer below (and L027's end-of-file span). The old `(len - 1)..len`
+        // assumed a single-byte final char: when the file ends in a multi-byte
+        // char with no trailing newline, `len - 1` falls inside the final
+        // codepoint, producing a mid-codepoint (non-char-boundary) span.
         diags.push(LintDiagnostic::new(
             LintCode::L003,
             range,
-            (len - 1)..len,
+            len..len,
             Severity::Warning,
             "file does not end with a newline".to_string(),
         ));
@@ -74,6 +79,28 @@ mod tests {
         let result = runner().run_source("x = 1;");
         assert_eq!(result.diagnostics.len(), 1);
         assert_eq!(result.diagnostics[0].code, LintCode::L003);
+    }
+
+    #[test]
+    fn span_is_zero_width_at_eof_with_multibyte_tail() {
+        // A file ending in a multi-byte char with no trailing newline (the
+        // Windows-1252-decoded MoTeC corpus shape, e.g. a unit comment ending
+        // in '°' = U+00B0 = bytes 0xC2 0xB0). The diagnostic must point at a
+        // zero-width EOF span on a char boundary, not at `len - 1` which falls
+        // inside the final codepoint and yields a mid-codepoint offset.
+        let src = "x = 1; // yaw °";
+        let len = src.len();
+        assert!(
+            !src.is_char_boundary(len - 1),
+            "test fixture has a multi-byte tail"
+        );
+
+        let result = runner().run_source(src);
+        assert_eq!(result.diagnostics.len(), 1);
+        let byte_range = &result.diagnostics[0].inner.byte_range;
+        assert_eq!(*byte_range, len..len);
+        assert!(src.is_char_boundary(byte_range.start));
+        assert!(src.is_char_boundary(byte_range.end));
     }
 
     #[test]
