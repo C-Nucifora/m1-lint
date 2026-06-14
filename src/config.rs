@@ -13,6 +13,14 @@ use crate::diagnostic::LintCode;
 /// instead of each carrying a copy.
 pub use m1_workspace::IndentStyle;
 
+/// Which brace placement the manual mandates (L028). The M1 manual mandates
+/// Allman ("a separate line for each brace"), so that is the default; teams
+/// preferring K&R set `brace-style = "kr"`.
+///
+/// Re-exported from `m1-workspace`: the formatter and the linter share one
+/// definition (same variants, same `Allman` default, same string spellings).
+pub use m1_workspace::BraceStyle;
+
 /// The resolved configuration the runner uses.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -22,6 +30,8 @@ pub struct Config {
     pub max_cognitive_complexity: u32,
     /// Required indentation character (L010). Defaults to tabs, per the manual.
     pub indent_style: IndentStyle,
+    /// Required brace placement (L028). Defaults to Allman, per the manual.
+    pub brace_style: BraceStyle,
     pub enabled: BTreeSet<LintCode>,
     /// Glob patterns; a file whose path or name matches any is skipped (#9).
     pub exclude: Vec<String>,
@@ -40,6 +50,7 @@ impl Default for Config {
             max_complexity: 40,
             max_cognitive_complexity: 15,
             indent_style: IndentStyle::default(),
+            brace_style: BraceStyle::default(),
             severity_overrides: std::collections::BTreeMap::new(),
             enabled: LintCode::all_codes()
                 .iter()
@@ -59,6 +70,7 @@ struct RawConfig {
     max_complexity: Option<u32>,
     max_cognitive_complexity: Option<u32>,
     indent_style: Option<IndentStyle>,
+    brace_style: Option<BraceStyle>,
     select: Option<Vec<String>>,
     ignore: Option<Vec<String>>,
     exclude: Option<Vec<String>>,
@@ -132,6 +144,9 @@ impl Config {
         }
         if let Some(style) = raw.indent_style {
             self.indent_style = style;
+        }
+        if let Some(style) = raw.brace_style {
+            self.brace_style = style;
         }
         if let Some(ex) = raw.exclude {
             self.exclude = ex;
@@ -207,6 +222,10 @@ impl Config {
         if let Some(s) = tc.format.indent_style.as_deref() {
             self.indent_style = IndentStyle::parse(s)
                 .ok_or_else(|| ConfigError::Toml(format!("invalid indent_style: {s}")))?;
+        }
+        if let Some(s) = tc.format.brace_style.as_deref() {
+            self.brace_style = BraceStyle::parse(s)
+                .ok_or_else(|| ConfigError::Toml(format!("invalid brace_style: {s}")))?;
         }
         self.apply_filters(tc.diagnostics.select.clone(), tc.diagnostics.ignore.clone())
     }
@@ -306,6 +325,15 @@ fn parse_raw(s: &str) -> Result<RawConfig, ConfigError> {
                 raw.indent_style = Some(
                     IndentStyle::parse(s)
                         .ok_or_else(|| ConfigError::Toml(format!("invalid indent-style: {s}")))?,
+                );
+            }
+            "brace-style" => {
+                let s = v
+                    .as_str()
+                    .ok_or_else(|| ConfigError::Toml("brace-style must be a string".into()))?;
+                raw.brace_style = Some(
+                    BraceStyle::parse(s)
+                        .ok_or_else(|| ConfigError::Toml(format!("invalid brace-style: {s}")))?,
                 );
             }
             "select" => raw.select = Some(string_array(v)?),

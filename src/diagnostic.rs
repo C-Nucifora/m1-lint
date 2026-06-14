@@ -222,6 +222,13 @@ define_rules! {
     L027 => "file-final-blank-line", "warning", true, true,
         "function/method script ends with a blank line",
         |cfg| l027_file_final_blank_line::FileFinalBlankLine,
+    /// L028 — brace-style (manual p.65: "a separate line for each brace" — Allman).
+    /// Default-on, like L010: the manual mandates Allman, so a K&R brace is flagged
+    /// by default; `brace-style = "kr"` flips it. Not `--fix`able — m1-fmt performs
+    /// the reformat.
+    L028 => "brace-style", "warning", false, false,
+        "braces follow the configured style (default Allman, manual p.65)",
+        |cfg| l028_brace_style::BraceStylePlacement { style: cfg.brace_style },
 }
 
 impl LintCode {
@@ -304,7 +311,7 @@ mod tests {
         // L001 to the current last code with no duplicates.
         let codes = LintCode::all_codes();
         assert_eq!(codes.first(), Some(&LintCode::L001));
-        assert_eq!(codes.last(), Some(&LintCode::L027));
+        assert_eq!(codes.last(), Some(&LintCode::L028));
         let mut sorted = codes.to_vec();
         sorted.sort();
         sorted.dedup();
