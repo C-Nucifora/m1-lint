@@ -156,6 +156,19 @@ for each brace"). The opening `{` must be on its own line; a K&R `if (a) {` is
 flagged. Set `[format] brace_style = "kr"` (shared with m1-fmt) to flip it.
 Severity: warning · fix by running m1-fmt.
 
+### indentation-depth (L029)
+
+A nested block is indented one indentation level per enclosing block (manual
+p.65: "indent conditional block by one tab stop"). Flags a nested statement
+indented by too few or too many levels — e.g. an `if` body left at column 1, or
+indented three tabs where one is expected. Complements L010 (which judges only
+the indent character) and L026 (column-1 top-level code); when the indentation
+uses the wrong character it defers to L010 rather than double-flagging.
+**Opt-in** (`--select L029`): like L017 and L027 it ships off by default because
+the real corpora keep house-style layout it flags en masse. Measured in the
+configured `[format] indent_style` (shared with m1-fmt). Severity: warning · fix
+by running m1-fmt.
+
 ## Configuration and workflow
 
 Rule selection, thresholds, and indent style live in a `.m1lint.toml`

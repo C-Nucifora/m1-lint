@@ -342,6 +342,9 @@ pub fn explain(code: crate::diagnostic::LintCode) -> &'static str {
         L028 => {
             "L028 brace-style\n\nManual p.65: \"a separate line for each brace\" — Allman. The opening `{` must\nsit on its own line (flagged when glued to the construct line, `if (a) {`),\nand the closing `}` on its own line. Default-on, like L010: the manual\nmandates Allman, so K&R braces are flagged; set [format] brace_style = \"kr\"\n(shared with m1-fmt) to flip it — then an own-line `{` is flagged instead.\nNot auto-fixable: run m1-fmt, which performs the brace reformat."
         }
+        L029 => {
+            "L029 indentation-depth\n\nOpt-in (--select L029). Manual p.65: \"indent conditional block by one tab\nstop\". Flags a nested statement whose leading indentation is not exactly one\nlevel per enclosing block (depth = `{ … }` ancestors, with a `when` body\ncounting as a level). Complements L010 (indent character) and L026 (column-1\ntop-level code) — when the indentation uses the wrong character it defers to\nL010 rather than double-flagging. Off by default: the real corpora keep\nhouse-style layout this flags en masse. Measured in the configured [format]\nindent_style; top-level code, continuation lines and statements sharing a\nline are exempt. Not auto-fixable: run m1-fmt, which performs the reflow."
+        }
     }
 }
 

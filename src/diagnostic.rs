@@ -229,6 +229,17 @@ define_rules! {
     L028 => "brace-style", "warning", false, false,
         "braces follow the configured style (default Allman, manual p.65)",
         |cfg| l028_brace_style::BraceStylePlacement { style: cfg.brace_style },
+    /// L029 — indentation-depth (manual p.65: "indent conditional block by one
+    /// tab stop"). Flags a nested statement whose leading indentation is not one
+    /// level per enclosing block. Not `--fix`able — m1-fmt performs the reflow.
+    /// Measured in the configured `indent_style`. Opt-in (off by default): the
+    /// real corpora keep house-style layout (under-indented Allman bodies, K&R,
+    /// spaces) that this rule flags en masse, so — like L017/L027 — it ships
+    /// off and is enabled with `--select L029` (run alongside m1-fmt, which
+    /// performs the reflow this rule only reports).
+    L029 => "indentation-depth", "warning", false, true,
+        "nested block is not indented one level per enclosing block (manual p.65)",
+        |cfg| l029_indentation_depth::IndentationDepth { style: cfg.indent_style },
 }
 
 impl LintCode {
@@ -311,7 +322,7 @@ mod tests {
         // L001 to the current last code with no duplicates.
         let codes = LintCode::all_codes();
         assert_eq!(codes.first(), Some(&LintCode::L001));
-        assert_eq!(codes.last(), Some(&LintCode::L028));
+        assert_eq!(codes.last(), Some(&LintCode::L029));
         let mut sorted = codes.to_vec();
         sorted.sort();
         sorted.dedup();
