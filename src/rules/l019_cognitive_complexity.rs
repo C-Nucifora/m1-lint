@@ -23,12 +23,8 @@
 //! `if`/`else if`/`else if`/`else if` chain scores 4, not 1+2+3+4.
 
 use crate::diagnostic::{LintCode, LintDiagnostic};
-use crate::rules::Rule;
+use crate::rules::{Rule, is_complexity_scope};
 use m1_core::{Kind, Node, Severity};
-
-fn is_scope_node(kind: Kind) -> bool {
-    matches!(kind, Kind::WhenStatement | Kind::SourceFile)
-}
 
 fn is_boolean_operator(kind: Kind) -> bool {
     matches!(kind, Kind::And | Kind::Or | Kind::AmpAmp | Kind::PipePipe)
@@ -164,7 +160,7 @@ impl Rule for CognitiveComplexity {
     }
 
     fn check_node(&self, node: &Node, _source: &str, diags: &mut Vec<LintDiagnostic>) {
-        if !is_scope_node(node.kind()) {
+        if !is_complexity_scope(node.kind()) {
             return;
         }
         let complexity = cognitive_complexity(node);

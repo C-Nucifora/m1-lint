@@ -12,12 +12,8 @@
 //! toward their enclosing scope's complexity.
 
 use crate::diagnostic::{LintCode, LintDiagnostic};
-use crate::rules::Rule;
+use crate::rules::{Rule, is_complexity_scope};
 use m1_core::{Kind, Node, Severity};
-
-fn is_scope_node(kind: Kind) -> bool {
-    matches!(kind, Kind::WhenStatement | Kind::SourceFile)
-}
 
 fn is_decision_point(kind: Kind) -> bool {
     matches!(
@@ -51,7 +47,7 @@ fn count_children(node: &Node, count: &mut u32) {
         if is_decision_point(child.kind()) {
             *count += 1;
         }
-        if is_scope_node(child.kind()) {
+        if is_complexity_scope(child.kind()) {
             // A nested scope is checked independently; do not descend.
             continue;
         }
@@ -79,7 +75,7 @@ impl Rule for CyclomaticComplexity {
     }
 
     fn check_node(&self, node: &Node, _source: &str, diags: &mut Vec<LintDiagnostic>) {
-        if !is_scope_node(node.kind()) {
+        if !is_complexity_scope(node.kind()) {
             return;
         }
         let complexity = count_complexity(node);
