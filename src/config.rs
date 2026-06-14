@@ -139,15 +139,27 @@ impl Config {
         if let Some(ex) = raw.exclude {
             self.exclude = ex;
         }
-        if let Some(sev) = raw.severity {
-            for (code_str, level_str) in sev {
-                let code =
-                    LintCode::from_code_str(&code_str).ok_or(ConfigError::UnknownCode(code_str))?;
-                let level = parse_severity(&level_str)?;
-                self.severity_overrides.insert(code, level);
-            }
+        if let Some(sev) = &raw.severity {
+            self.apply_severity_overrides(sev.iter().map(|(c, l)| (c.as_str(), l.as_str())))?;
         }
         self.apply_filters(raw.select, raw.ignore)
+    }
+
+    /// Apply a per-rule severity override table (`L010 => "error"`) onto
+    /// `severity_overrides`. Shared by the per-tool `.m1lint.toml` `[severity]`
+    /// layer and the unified `m1-tools.toml` `[diagnostics.severity]` layer so
+    /// the two can't drift; a later overlay's entries win.
+    pub fn apply_severity_overrides<'a>(
+        &mut self,
+        sev: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Result<(), ConfigError> {
+        for (code_str, level_str) in sev {
+            let code = LintCode::from_code_str(code_str)
+                .ok_or_else(|| ConfigError::UnknownCode(code_str.to_string()))?;
+            let level = parse_severity(level_str)?;
+            self.severity_overrides.insert(code, level);
+        }
+        Ok(())
     }
 
     /// True if `path` matches any configured `exclude` glob, tested against both
@@ -187,7 +199,8 @@ impl Config {
     /// Overlay the unified `m1-tools.toml` onto this config (only set fields).
     /// Reads `[lint]` thresholds + `exclude`, the shared `[format].indent_style`
     /// (the indent character is one decision shared with the formatter), and
-    /// `[diagnostics]` select/ignore.
+    /// `[diagnostics]` select/ignore plus `[diagnostics.severity]` per-rule
+    /// reclassification.
     pub fn apply_tools_config(
         &mut self,
         tc: &m1_workspace::config::M1ToolsConfig,
@@ -214,6 +227,13 @@ impl Config {
         if let Some(s) = tc.format.brace_style.as_deref() {
             self.brace_style = BraceStyle::parse(s)
                 .ok_or_else(|| ConfigError::Toml(format!("invalid brace_style: {s}")))?;
+        }
+        // `[diagnostics.severity]` per-rule reclassification (#110): previously
+        // only reachable via a per-tool `.m1lint.toml [severity]` table, so the
+        // unified file silently ignored it. A later `.m1lint.toml` overlay still
+        // wins (it is applied after this layer).
+        if let Some(sev) = &tc.diagnostics.severity {
+            self.apply_severity_overrides(sev.iter().map(|(c, l)| (c.as_str(), l.as_str())))?;
         }
         self.apply_filters(tc.diagnostics.select.clone(), tc.diagnostics.ignore.clone())
     }
@@ -607,5 +627,22 @@ mod tests {
         cfg.apply_tools_config(&tc).unwrap();
         assert!(!cfg.enabled.contains(&LintCode::L007));
         assert!(cfg.enabled.contains(&LintCode::L001));
+    }
+
+    #[test]
+    fn unified_diagnostics_severity_applies() {
+        // `[diagnostics.severity]` in the unified m1-tools.toml reclassifies a
+        // rule's severity — previously only the per-tool `.m1lint.toml`
+        // `[severity]` table did, so the unified field was silently inert.
+        let tc = m1_workspace::config::M1ToolsConfig::from_toml_str(
+            "[diagnostics.severity]\nL010 = \"error\"\n",
+        )
+        .unwrap();
+        let mut cfg = Config::default();
+        cfg.apply_tools_config(&tc).unwrap();
+        assert_eq!(
+            cfg.severity_overrides.get(&LintCode::L010),
+            Some(&m1_core::Severity::Error)
+        );
     }
 }
