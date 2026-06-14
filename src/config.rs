@@ -434,7 +434,7 @@ mod tests {
     #[test]
     fn default_enables_all_on_by_default_rules() {
         // Derived from the catalogue so a new rule can't make this stale:
-        // every code is enabled except the off-by-default ones (L017, L027).
+        // every code is enabled except the off-by-default ones (L017, L027, L029).
         let off = LintCode::all_codes()
             .iter()
             .filter(|c| c.off_by_default())
@@ -445,6 +445,7 @@ mod tests {
         );
         assert!(!Config::default().enabled.contains(&LintCode::L017));
         assert!(!Config::default().enabled.contains(&LintCode::L027));
+        assert!(!Config::default().enabled.contains(&LintCode::L029));
         assert_eq!(Config::default().max_line_length, 88);
     }
 
