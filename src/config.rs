@@ -106,27 +106,15 @@ impl Config {
 
     /// Walk up from `start_dir` looking for a `.m1lint.toml`. Returns the
     /// parsed config if found, else `Config::default()`.
+    ///
+    /// The resetting counterpart of [`Self::apply_discovered_file`]: because it
+    /// always starts from `Config::default()`, it is exactly equivalent to
+    /// applying the discovered file onto a fresh default, so it delegates there
+    /// rather than carrying its own copy of the upward-walk + global fallback.
     pub fn discover(start_dir: &Path) -> Result<Config, ConfigError> {
-        let mut dir: Option<&Path> = Some(start_dir);
-        while let Some(d) = dir {
-            let candidate = d.join(".m1lint.toml");
-            if candidate.is_file() {
-                let text = std::fs::read_to_string(&candidate)
-                    .map_err(|e| ConfigError::Toml(e.to_string()))?;
-                return Config::from_toml_str(&text);
-            }
-            dir = d.parent();
-        }
-        // No project `.m1lint.toml`: fall back to the user-global config
-        // (`$XDG_CONFIG_HOME/m1lint/config.toml`, else `~/.config/...`) if present (#9).
-        if let Some(global) = global_config_path()
-            && global.is_file()
-        {
-            let text =
-                std::fs::read_to_string(&global).map_err(|e| ConfigError::Toml(e.to_string()))?;
-            return Config::from_toml_str(&text);
-        }
-        Ok(Config::default())
+        let mut cfg = Config::default();
+        cfg.apply_discovered_file(start_dir)?;
+        Ok(cfg)
     }
 
     fn apply_raw(&mut self, raw: RawConfig) -> Result<(), ConfigError> {
@@ -239,6 +227,9 @@ impl Config {
     /// If a `.m1lint.toml` (walking up from `start_dir`) or the user-global config
     /// exists, overlay it (only its set keys) onto this config; return whether one
     /// was found. The non-resetting counterpart of [`Self::discover`].
+    ///
+    /// This is the single owner of the upward-walk + global-config fallback;
+    /// [`Self::discover`] delegates here against a fresh `Config::default()`.
     pub fn apply_discovered_file(&mut self, start_dir: &Path) -> Result<bool, ConfigError> {
         let mut dir: Option<&Path> = Some(start_dir);
         while let Some(d) = dir {
@@ -519,6 +510,36 @@ mod tests {
         // that goes stale when a rule is added (#133's stale-count lesson).
         let cfg = Config::discover(&tmp).unwrap();
         assert!(cfg.enabled.len() <= Config::default().enabled.len());
+    }
+
+    #[test]
+    fn discover_equals_default_plus_apply_discovered_file() {
+        // `discover` and `apply_discovered_file` walk the same directory tree
+        // for `.m1lint.toml` and share the same global fallback; the only
+        // difference is `discover` starts fresh from `Config::default()`.
+        // So discovering must equal applying the discovered file onto a
+        // default config — guarding the shared walk against drift when one
+        // copy is changed but not the other.
+        let tmp = tempfile::tempdir().unwrap();
+        let nested = tmp.path().join("a").join("b");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(
+            tmp.path().join(".m1lint.toml"),
+            "max-line-length = 120\nignore = [\"L007\"]\n",
+        )
+        .unwrap();
+
+        let discovered = Config::discover(&nested).unwrap();
+
+        let mut overlaid = Config::default();
+        let found = overlaid.apply_discovered_file(&nested).unwrap();
+        assert!(found, "the walk should locate the planted .m1lint.toml");
+
+        // Parity on the fields the file actually set, and on the rule set.
+        assert_eq!(discovered.max_line_length, overlaid.max_line_length);
+        assert_eq!(discovered.max_line_length, 120);
+        assert_eq!(discovered.enabled, overlaid.enabled);
+        assert!(!discovered.enabled.contains(&LintCode::L007));
     }
 
     #[test]
