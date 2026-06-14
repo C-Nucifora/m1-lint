@@ -339,6 +339,9 @@ pub fn explain(code: crate::diagnostic::LintCode) -> &'static str {
         L027 => {
             "L027 file-final-blank-line\n\nOpt-in (--select L027). Manual p.65: all functions and methods end with a\nblank line — and an .m1scr file IS a method/function body, so the script\nmust end in a blank line (\\n\\n). Ships off by default: the real corpora\ndon't follow this bullet, and m1-fmt's default trailing-newline\nnormalisation strips the blank line again — pair the rule with a formatter\nconfiguration that preserves it. When the file lacks even a final newline,\nL003 fires instead. --fix appends the blank line."
         }
+        L028 => {
+            "L028 brace-style\n\nManual p.65: \"a separate line for each brace\" — Allman. The opening `{` must\nsit on its own line (flagged when glued to the construct line, `if (a) {`),\nand the closing `}` on its own line. Default-on, like L010: the manual\nmandates Allman, so K&R braces are flagged; set [format] brace_style = \"kr\"\n(shared with m1-fmt) to flip it — then an own-line `{` is flagged instead.\nNot auto-fixable: run m1-fmt, which performs the brace reformat."
+        }
     }
 }
 

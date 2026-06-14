@@ -305,7 +305,7 @@ dependencies = [
 
 [[package]]
 name = "m1-lint"
-version = "0.19.1"
+version = "0.20.0"
 dependencies = [
  "clap",
  "glob",

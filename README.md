@@ -149,6 +149,13 @@ Top-level code begins in the first column. Severity: warning · auto-fixable (`-
 
 Function/method script ends with a blank line. Severity: warning · auto-fixable (`--fix`).
 
+### brace-style (L028)
+
+Braces follow the configured style (default Allman, manual p.65: "a separate line
+for each brace"). The opening `{` must be on its own line; a K&R `if (a) {` is
+flagged. Set `[format] brace_style = "kr"` (shared with m1-fmt) to flip it.
+Severity: warning · fix by running m1-fmt.
+
 ## Configuration and workflow
 
 Rule selection, thresholds, and indent style live in a `.m1lint.toml`
