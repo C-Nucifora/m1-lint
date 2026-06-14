@@ -1,6 +1,6 @@
 [package]
 name = "m1-lint"
-version = "0.19.1"
+version = "0.20.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Linter for the MoTeC M1 script language"
