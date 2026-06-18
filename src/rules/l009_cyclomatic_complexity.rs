@@ -1,7 +1,8 @@
 //! L009 — cyclomatic-complexity
 //!
 //! The cyclomatic complexity of a `when` block (or the top-level source file)
-//! must not exceed 10.
+//! must not exceed the configured ceiling (`max_complexity`, default 40 —
+//! loose, as L019 cognitive complexity is the primary gate).
 //!
 //! Complexity = 1 + count of decision points within the scope:
 //! - each `if` / `else if` (`else if` is itself an `if_statement` node)
@@ -60,12 +61,6 @@ pub struct CyclomaticComplexity {
     pub max_complexity: u32,
 }
 
-impl Default for CyclomaticComplexity {
-    fn default() -> Self {
-        Self { max_complexity: 10 }
-    }
-}
-
 impl Rule for CyclomaticComplexity {
     fn code(&self) -> LintCode {
         LintCode::L009
@@ -97,12 +92,25 @@ impl Rule for CyclomaticComplexity {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
     use crate::registry::Registry;
     use crate::runner::Runner;
 
+    /// The production ceiling (`Config::default().max_complexity`, currently 40),
+    /// so these tests exercise the same threshold `build_rule` wires in — not a
+    /// hand-picked test-only default.
+    const DEFAULT_MAX: u32 = 40;
+
     fn runner() -> Runner {
+        assert_eq!(
+            Config::default().max_complexity,
+            DEFAULT_MAX,
+            "production default changed; update L009 tests to match"
+        );
         let mut r = Registry::empty();
-        r.register(Box::new(CyclomaticComplexity::default()));
+        r.register(Box::new(CyclomaticComplexity {
+            max_complexity: DEFAULT_MAX,
+        }));
         Runner::new(r)
     }
 
@@ -115,9 +123,9 @@ mod tests {
 
     #[test]
     fn flags_high_complexity_top_level() {
-        // 11 `if` statements -> complexity 12 > 10.
+        // 41 `if` statements -> complexity 42 > 40 (the default ceiling).
         let mut source = String::new();
-        for _ in 0..11 {
+        for _ in 0..(DEFAULT_MAX + 1) {
             source.push_str("if (a) { x = 1; }\n");
         }
         let result = runner().run_source(&source);
@@ -125,10 +133,21 @@ mod tests {
     }
 
     #[test]
+    fn just_under_ceiling_not_flagged() {
+        // 39 `if` statements -> complexity 40 == 40, not > 40, so no L009.
+        let mut source = String::new();
+        for _ in 0..(DEFAULT_MAX - 1) {
+            source.push_str("if (a) { x = 1; }\n");
+        }
+        let result = runner().run_source(&source);
+        assert!(result.diagnostics.iter().all(|d| d.code != LintCode::L009));
+    }
+
+    #[test]
     fn logical_operators_count() {
-        // 10 `and` operators -> complexity 11 > 10.
+        // 40 `and` operators -> complexity 41 > 40 (the default ceiling).
         let mut cond = String::from("a");
-        for _ in 0..10 {
+        for _ in 0..DEFAULT_MAX {
             cond.push_str(" and a");
         }
         let source = format!("if ({}) {{ x = 1; }}\n", cond);
