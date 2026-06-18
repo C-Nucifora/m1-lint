@@ -240,6 +240,17 @@ define_rules! {
     L029 => "indentation-depth", "warning", false, true,
         "nested block is not indented one level per enclosing block (manual p.65)",
         |cfg| l029_indentation_depth::IndentationDepth { style: cfg.indent_style },
+    /// L030 — clause-parentheses (manual p.65: "use parentheses to clarify
+    /// clauses in an expression"; its example wraps each comparison sub-clause:
+    /// `((a > b) and (b < c))`). Flags a relational/equality comparison that is
+    /// an operand of a logical `and`/`or` and is not already parenthesized.
+    /// `--fix` wraps the complete comparison subexpression — never changes the
+    /// parse. Opt-in (off by default): the real corpora write compound booleans
+    /// unparenthesized, so — like L017/L027/L029 — it ships off and is enabled
+    /// with `--select L030`.
+    L030 => "clause-parentheses", "warning", true, true,
+        "wrap a comparison clause of a logical and/or in parentheses (manual p.65)",
+        |cfg| l030_clause_parentheses::ClauseParentheses,
 }
 
 impl LintCode {
@@ -322,7 +333,7 @@ mod tests {
         // L001 to the current last code with no duplicates.
         let codes = LintCode::all_codes();
         assert_eq!(codes.first(), Some(&LintCode::L001));
-        assert_eq!(codes.last(), Some(&LintCode::L029));
+        assert_eq!(codes.last(), Some(&LintCode::L030));
         let mut sorted = codes.to_vec();
         sorted.sort();
         sorted.dedup();

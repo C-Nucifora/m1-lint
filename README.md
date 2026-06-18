@@ -169,6 +169,18 @@ the real corpora keep house-style layout it flags en masse. Measured in the
 configured `[format] indent_style` (shared with m1-fmt). Severity: warning · fix
 by running m1-fmt.
 
+### clause-parentheses (L030)
+
+Wrap each comparison sub-clause of a compound logical expression in parentheses
+(manual p.65, "use parentheses to clarify clauses in an expression"; its worked
+example is `if ((a > b) and (b < c))`). Flags a relational or equality
+comparison (`>`, `<`, `eq`, `neq`, …) that is an operand of a logical `and`/`or`
+and is not already parenthesized — so `a > b and b < c` is flagged twice and
+fixed to `(a > b) and (b < c)`. Symbolic `&&`/`||` are left to L005 (which
+prefers the keyword spellings). **Opt-in** (`--select L030`): like L017, L027 and
+L029 it ships off by default because the real corpora write compound booleans
+unparenthesized. Severity: warning · auto-fixable (`--fix`).
+
 ## Configuration and workflow
 
 Rule selection, thresholds, and indent style live in a `.m1lint.toml`
