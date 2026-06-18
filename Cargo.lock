@@ -296,8 +296,8 @@ checksum = "953f07c43838f8e6f9758cab68bf5bed85465e7587ebe0b823f1bcd81978ad3a"
 
 [[package]]
 name = "m1-core"
-version = "0.12.0"
-source = "git+https://github.com/C-Nucifora/m1-core.git?tag=v0.12.0#120599ac3706104e2244c525c67038f68204c9a4"
+version = "0.14.1"
+source = "git+https://github.com/C-Nucifora/m1-core.git?tag=v0.14.1#7c265135542617ef2bf45515181fe41f3e6a0f76"
 dependencies = [
  "tree-sitter",
  "tree-sitter-m1",
@@ -305,7 +305,7 @@ dependencies = [
 
 [[package]]
 name = "m1-lint"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
  "clap",
  "glob",
@@ -319,8 +319,8 @@ dependencies = [
 
 [[package]]
 name = "m1-workspace"
-version = "0.11.0"
-source = "git+https://github.com/nedlane/m1-workspace.git?tag=v0.11.0#f137b67fc6defee0077981bd0f55a60652330a38"
+version = "0.12.0"
+source = "git+https://github.com/nedlane/m1-workspace.git?tag=v0.12.0#3612f48925dc57960deb9325ec82494e1d16cfc1"
 dependencies = [
  "serde",
  "serde_ignored",
@@ -613,8 +613,8 @@ checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
 
 [[package]]
 name = "tree-sitter-m1"
-version = "0.7.0"
-source = "git+https://github.com/C-Nucifora/tree-sitter-m1.git?tag=v0.7.0#86aff156dcaeb81039f09df266b48cc8d41058ae"
+version = "0.7.1"
+source = "git+https://github.com/C-Nucifora/tree-sitter-m1.git?tag=v0.7.1#7d31d2415934d0546c86765b1c38a033e52653ae"
 dependencies = [
  "cc",
  "tree-sitter-language",
