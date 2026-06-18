@@ -32,6 +32,7 @@ pub mod l026_top_level_indentation;
 pub mod l027_file_final_blank_line;
 pub mod l028_brace_style;
 pub mod l029_indentation_depth;
+pub mod l030_clause_parentheses;
 
 /// Build an [`Edit`][crate::fix::Edit] that replaces a symbolic binary operator
 /// (`==`/`!=`/`&&`/`||`) with its keyword form (`eq`/`neq`/`and`/`or`),

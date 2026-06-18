@@ -345,6 +345,9 @@ pub fn explain(code: crate::diagnostic::LintCode) -> &'static str {
         L029 => {
             "L029 indentation-depth\n\nOpt-in (--select L029). Manual p.65: \"indent conditional block by one tab\nstop\". Flags a nested statement whose leading indentation is not exactly one\nlevel per enclosing block (depth = `{ … }` ancestors, with a `when` body\ncounting as a level). Complements L010 (indent character) and L026 (column-1\ntop-level code) — when the indentation uses the wrong character it defers to\nL010 rather than double-flagging. Off by default: the real corpora keep\nhouse-style layout this flags en masse. Measured in the configured [format]\nindent_style; top-level code, continuation lines and statements sharing a\nline are exempt. Not auto-fixable: run m1-fmt, which performs the reflow."
         }
+        L030 => {
+            "L030 clause-parentheses\n\nOpt-in (--select L030). Manual p.65: \"use parentheses to clarify clauses in\nan expression\" — its example wraps each comparison sub-clause of a compound\nboolean: `if ((a > b) and (b < c))`. Flags a relational/equality comparison\n(>, <, eq, neq, …) that is an operand of a logical `and`/`or` and is not\nalready parenthesized. Symbolic `&&`/`||` are L005's concern, so only the\nkeyword joiners count. Off by default: the real corpora write compound\nbooleans unparenthesized. --fix wraps each bare comparison clause — wrapping\na complete subexpression never changes the parse."
+        }
     }
 }
 
