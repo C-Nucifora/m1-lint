@@ -92,7 +92,15 @@ fn has_space_before(source: &[u8], byte_start: usize) -> bool {
 }
 
 fn has_space_after(source: &[u8], byte_end: usize) -> bool {
-    byte_end < source.len() && source[byte_end] == b' '
+    // Whitespace, a line break, or end-of-file all satisfy "space after": an
+    // operator at end of line (`a +` continued on the next line) is correctly
+    // spaced. Mirrors `has_space_before`'s newline tolerance — without it L007
+    // flagged every trailing operator, and its fixer then oscillated forever
+    // against L002 (blank-around), rewriting a byte-identical file each `--fix`.
+    match source.get(byte_end) {
+        None => true,
+        Some(&b) => matches!(b, b' ' | b'\t' | b'\r' | b'\n'),
+    }
 }
 
 impl Rule for OperatorSpacing {
@@ -184,6 +192,20 @@ mod tests {
         let source = "x = a + b;\n";
         let result = runner().run_source(source);
         assert!(result.diagnostics.iter().all(|d| d.code != LintCode::L007));
+    }
+    #[test]
+    fn operator_at_end_of_line_is_not_flagged() {
+        // A binary operator at end of line (continued on the next) is correctly
+        // spaced — flagging it made L007's fixer oscillate with L002 forever.
+        let source = "x = a +
+	b;
+";
+        let result = runner().run_source(source);
+        assert!(
+            result.diagnostics.iter().all(|d| d.code != LintCode::L007),
+            "trailing operator must not be flagged: {:?}",
+            result.diagnostics
+        );
     }
 
     #[test]

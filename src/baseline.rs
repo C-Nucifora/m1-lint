@@ -21,23 +21,25 @@ pub struct Baseline {
     entries: HashMap<(String, String, String), usize>,
 }
 
-/// The trimmed source line a diagnostic starts on.
-fn line_of<'a>(source: &'a str, d: &LintDiagnostic) -> &'a str {
-    source
-        .split('\n')
-        .nth(d.inner.range.start.line as usize)
-        .unwrap_or("")
+/// The trimmed source line a diagnostic starts on, from a slice of the source's
+/// lines split once by the caller (rather than re-walking the source per
+/// diagnostic).
+fn line_of<'a>(lines: &[&'a str], d: &LintDiagnostic) -> &'a str {
+    lines
+        .get(d.inner.range.start.line as usize)
+        .unwrap_or(&"")
         .trim()
 }
 
 impl Baseline {
     /// Record every diagnostic of one file into the baseline.
     pub fn record(&mut self, file: &str, source: &str, diagnostics: &[LintDiagnostic]) {
+        let lines: Vec<&str> = source.split('\n').collect();
         for d in diagnostics {
             let key = (
                 d.code.to_string(),
                 file.to_string(),
-                line_of(source, d).to_string(),
+                line_of(&lines, d).to_string(),
             );
             *self.entries.entry(key).or_insert(0) += 1;
         }
@@ -49,19 +51,26 @@ impl Baseline {
         if self.entries.is_empty() {
             return;
         }
-        let mut budget = self.entries.clone();
+        // Split the source once, and track only how many of THIS file's
+        // diagnostics each baseline entry has already suppressed — instead of
+        // cloning the entire baseline map for every linted file (which was
+        // O(files * total_entries) on exactly the legacy-corpus workload the
+        // feature exists for).
+        let lines: Vec<&str> = source.split('\n').collect();
+        let mut used: HashMap<(String, String, String), usize> = HashMap::new();
         diagnostics.retain(|d| {
             let key = (
                 d.code.to_string(),
                 file.to_string(),
-                line_of(source, d).to_string(),
+                line_of(&lines, d).to_string(),
             );
-            match budget.get_mut(&key) {
-                Some(n) if *n > 0 => {
-                    *n -= 1;
-                    false // baselined — suppress
-                }
-                _ => true,
+            let recorded = self.entries.get(&key).copied().unwrap_or(0);
+            let seen = used.entry(key).or_insert(0);
+            if *seen < recorded {
+                *seen += 1;
+                false // baselined — suppress
+            } else {
+                true
             }
         });
     }

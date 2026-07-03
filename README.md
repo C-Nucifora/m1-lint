@@ -181,6 +181,18 @@ prefers the keyword spellings). **Opt-in** (`--select L030`): like L017, L027 an
 L029 it ships off by default because the real corpora write compound booleans
 unparenthesized. Severity: warning · auto-fixable (`--fix`).
 
+### case-only-naming (L031)
+
+Flags a `local` whose name matches an object or channel name used in the same
+script when the two differ only by letter case — `local pressure` alongside
+`Fuel.Pressure`, or `local ok` alongside `OK` (manual p.64: "Don't distinguish
+local variable names from other object names only by uppercase/lowercase
+writing"). The convention keeps locals visually distinct from channels/objects
+and avoids reference-maintenance breakage. Pure CST analysis, no project needed.
+**Opt-in** (`--select L031`): off by default like the other manual naming rules
+the real corpora predate. Severity: warning · not auto-fixable (a rename is a
+semantic change).
+
 ## Configuration and workflow
 
 Rule selection, thresholds, and indent style live in a `.m1lint.toml`
