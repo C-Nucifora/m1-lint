@@ -309,6 +309,23 @@ impl ExcludeMatcher {
     }
 }
 
+/// Read a non-negative integer config value, erroring on the wrong TOML type or
+/// a negative number instead of silently ignoring it. Previously
+/// `v.as_integer().map(...)` swallowed a `"100"` string (field kept its default)
+/// and `-1` wrapped to `usize::MAX` (silently disabling the limit).
+fn int_field(key: &str, v: &toml::Value) -> Result<i64, ConfigError> {
+    match v.as_integer() {
+        Some(n) if n >= 0 => Ok(n),
+        Some(n) => Err(ConfigError::Toml(format!(
+            "`{key}` must be a non-negative integer, got {n}"
+        ))),
+        None => Err(ConfigError::Toml(format!(
+            "`{key}` must be an integer, got a {}",
+            v.type_str()
+        ))),
+    }
+}
+
 fn parse_raw(s: &str) -> Result<RawConfig, ConfigError> {
     // Parse the document as a TOML table. (toml 1.x changed `str::parse::<Value>`
     // to expect a bare value, not a document, so a `key = val` config failed to
@@ -323,11 +340,11 @@ fn parse_raw(s: &str) -> Result<RawConfig, ConfigError> {
         // keys used by the unified `m1-tools.toml` / `--scaffold-config` output,
         // so the scaffold can be used directly as a `.m1lint.toml` (#84).
         match k.replace('_', "-").as_str() {
-            "max-line-length" => raw.max_line_length = v.as_integer().map(|n| n as usize),
-            "max-nesting-depth" => raw.max_nesting_depth = v.as_integer().map(|n| n as usize),
-            "max-complexity" => raw.max_complexity = v.as_integer().map(|n| n as u32),
+            "max-line-length" => raw.max_line_length = Some(int_field(k, v)? as usize),
+            "max-nesting-depth" => raw.max_nesting_depth = Some(int_field(k, v)? as usize),
+            "max-complexity" => raw.max_complexity = Some(int_field(k, v)? as u32),
             "max-cognitive-complexity" => {
-                raw.max_cognitive_complexity = v.as_integer().map(|n| n as u32)
+                raw.max_cognitive_complexity = Some(int_field(k, v)? as u32)
             }
             "indent-style" => {
                 let s = v

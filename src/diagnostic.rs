@@ -251,6 +251,15 @@ define_rules! {
     L030 => "clause-parentheses", "warning", true, true,
         "wrap a comparison clause of a logical and/or in parentheses (manual p.65)",
         |cfg| l030_clause_parentheses::ClauseParentheses,
+    /// L031 — case-only-naming (manual p.64: "Don't distinguish local variable
+    /// names from other object names only by uppercase/lowercase writing").
+    /// Flags a local whose name matches an object/channel name used in the same
+    /// script case-insensitively. Not `--fix`able (a rename is semantic). Opt-in
+    /// (off by default), like the other manual-naming rules the real corpora
+    /// predate; enable with `--select L031`.
+    L031 => "case-only-naming", "warning", false, true,
+        "do not distinguish a local from an object name by letter case only (manual p.64)",
+        |cfg| l031_case_only_naming::CaseOnlyNaming,
 }
 
 impl LintCode {
@@ -333,7 +342,7 @@ mod tests {
         // L001 to the current last code with no duplicates.
         let codes = LintCode::all_codes();
         assert_eq!(codes.first(), Some(&LintCode::L001));
-        assert_eq!(codes.last(), Some(&LintCode::L030));
+        assert_eq!(codes.last(), Some(&LintCode::L031));
         let mut sorted = codes.to_vec();
         sorted.sort();
         sorted.dedup();

@@ -348,6 +348,9 @@ pub fn explain(code: crate::diagnostic::LintCode) -> &'static str {
         L030 => {
             "L030 clause-parentheses\n\nOpt-in (--select L030). Manual p.65: \"use parentheses to clarify clauses in\nan expression\" — its example wraps each comparison sub-clause of a compound\nboolean: `if ((a > b) and (b < c))`. Flags a relational/equality comparison\n(>, <, eq, neq, …) that is an operand of a logical `and`/`or` and is not\nalready parenthesized. Symbolic `&&`/`||` are L005's concern, so only the\nkeyword joiners count. Off by default: the real corpora write compound\nbooleans unparenthesized. --fix wraps each bare comparison clause — wrapping\na complete subexpression never changes the parse."
         }
+        L031 => {
+            "L031 case-only-naming\n\nOpt-in (--select L031). Manual p.64: \"Don't distinguish local variable names\nfrom other object names only by uppercase/lowercase writing.\" Flags a `local`\nwhose name matches an object/channel name used in the same script when the two\ndiffer only by letter case (`local pressure` alongside `Fuel.Pressure`), which\nbreaks reference-maintenance and readability. Pure CST analysis. Not\nauto-fixable: a rename is a semantic change. Off by default, like the other\nmanual naming-layout rules."
+        }
     }
 }
 
