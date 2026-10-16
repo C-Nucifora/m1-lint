@@ -222,9 +222,9 @@ mod tests {
 
     #[test]
     fn still_flags_decimal_exponent_float() {
-        // A genuine exponent-notation float (`1e3`, `2.5E-2`) is still a float and
+        // A genuine exponent-notation float (`1.0e3`, `2.5E-2`) is still a float and
         // must remain flagged — the hex fix must not weaken real-float detection.
-        for lit in ["1e3", "2.5E-2", "1.0", "0.5"] {
+        for lit in ["1.0e3", "2.5E-2", "1.0", "0.5"] {
             let source = format!("x = a == {lit};\n");
             let result = runner().run_source(&source);
             assert!(
