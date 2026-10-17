@@ -251,7 +251,14 @@ impl Config {
     /// This is the single owner of the upward-walk + global-config fallback;
     /// [`Self::discover`] delegates here against a fresh `Config::default()`.
     pub fn apply_discovered_file(&mut self, start_dir: &Path) -> Result<bool, ConfigError> {
-        let mut dir: Option<&Path> = Some(start_dir);
+        let start_dir = if start_dir.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            start_dir
+        };
+        let start_dir =
+            std::path::absolute(start_dir).map_err(|e| ConfigError::Toml(e.to_string()))?;
+        let mut dir: Option<&Path> = Some(&start_dir);
         while let Some(d) = dir {
             let cand = d.join(".m1lint.toml");
             if cand.is_file() {
@@ -426,6 +433,7 @@ fn global_config_path() -> Option<PathBuf> {
 /// Helper for callers (CLI/tests) needing the config's directory base.
 pub fn dir_of(path: &Path) -> PathBuf {
     path.parent()
+        .filter(|p| !p.as_os_str().is_empty())
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."))
 }
