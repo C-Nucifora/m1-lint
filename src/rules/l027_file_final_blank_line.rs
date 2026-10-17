@@ -26,7 +26,10 @@ pub struct FileFinalBlankLine;
 
 fn needs_blank_line(source: &str) -> bool {
     // Defer no-final-newline entirely to L003; skip empty/blank-only files.
-    !source.trim().is_empty() && source.ends_with('\n') && !source.ends_with("\n\n")
+    !source.trim().is_empty()
+        && source.ends_with('\n')
+        && !source.ends_with("\n\n")
+        && !source.ends_with("\n\r\n")
 }
 
 impl Rule for FileFinalBlankLine {
@@ -60,7 +63,12 @@ impl Rule for FileFinalBlankLine {
             let len = source.len();
             edits.push(crate::fix::Edit {
                 byte_range: len..len,
-                replacement: "\n".into(),
+                replacement: if source.ends_with("\r\n") {
+                    "\r\n"
+                } else {
+                    "\n"
+                }
+                .into(),
             });
         }
     }
