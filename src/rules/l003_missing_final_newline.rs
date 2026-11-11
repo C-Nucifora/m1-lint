@@ -20,12 +20,7 @@ impl Rule for MissingFinalNewline {
             return;
         }
         let len = source.len();
-        let line_count = source.lines().count() as u32;
-        let last_line_len = source.lines().last().map(|l| l.len()).unwrap_or(0) as u32;
-        let pos = m1_core::Position {
-            line: line_count.saturating_sub(1),
-            column: last_line_len,
-        };
+        let pos = m1_core::byte_to_position(source, len);
         let range = Range {
             start: pos,
             end: pos,

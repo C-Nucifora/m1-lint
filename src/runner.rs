@@ -168,31 +168,71 @@ impl Runner {
 /// (`@m1:requires-finite`, …) are not treated as unknown here; m1-lint consumes
 /// only `@allow`.
 fn suppress_allowed(source: &str, cst: &m1_core::Cst, diags: &mut Vec<LintDiagnostic>) {
-    let anns = m1_core::annotations(cst, &m1_core::Registry::seed());
-    // (start_line, end_line inclusive, annotation) for each `@allow` with a target.
-    let spans: Vec<(u32, u32, &m1_core::Annotation)> = anns
-        .all()
-        .iter()
-        .filter(|a| a.kind == "allow")
-        .filter_map(|a| {
-            let t = a.target_byte_range.as_ref()?;
-            Some((
-                byte_line(source, t.start),
-                byte_line(source, t.end.saturating_sub(1)),
-                a,
-            ))
-        })
-        .collect();
-    if spans.is_empty() {
-        return;
-    }
+    let allowed = Allowed::new(source, cst);
     diags.retain(|d| {
-        let line = d.inner.range.start.line;
-        let code = d.code.to_string();
-        !spans.iter().any(|(start, end, a)| {
-            line >= *start && line <= *end && (a.args.is_empty() || a.has_positional(&code))
-        })
+        !allowed.suppresses(d.code, d.inner.range.start.line, d.inner.range.start.line)
     });
+}
+
+pub(crate) struct Allowed {
+    spans: Vec<(u32, u32, m1_core::Annotation)>,
+}
+
+impl Allowed {
+    pub(crate) fn new(source: &str, cst: &m1_core::Cst) -> Self {
+        let anns = m1_core::annotations(cst, &m1_core::Registry::seed());
+        let spans = anns
+            .all()
+            .iter()
+            .filter(|a| a.kind == "allow")
+            .filter_map(|a| {
+                let target = a.target_byte_range.as_ref()?;
+                Some((
+                    byte_line(source, target.start),
+                    byte_line(source, target.end.saturating_sub(1)),
+                    a.clone(),
+                ))
+            })
+            .collect();
+        Self { spans }
+    }
+
+    fn suppresses(
+        &self,
+        code: crate::diagnostic::LintCode,
+        start_line: u32,
+        end_line: u32,
+    ) -> bool {
+        if self.spans.is_empty() {
+            return false;
+        }
+        let code = code.to_string();
+        self.spans.iter().any(|(start, end, annotation)| {
+            start_line <= *end
+                && end_line >= *start
+                && (annotation.args.is_empty() || annotation.has_positional(&code))
+        })
+    }
+
+    pub(crate) fn suppresses_edit(
+        &self,
+        code: crate::diagnostic::LintCode,
+        source: &str,
+        edit: &crate::fix::Edit,
+    ) -> bool {
+        if self.spans.is_empty() {
+            return false;
+        }
+        let start = byte_line(source, edit.byte_range.start);
+        let end = byte_line(
+            source,
+            edit.byte_range
+                .end
+                .saturating_sub(1)
+                .max(edit.byte_range.start),
+        );
+        self.suppresses(code, start, end)
+    }
 }
 
 /// 0-based line number of `byte` within `source` (count of preceding newlines).
