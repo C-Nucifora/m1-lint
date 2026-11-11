@@ -93,8 +93,9 @@ pub(crate) fn is_complexity_scope(kind: m1_core::Kind) -> bool {
 
 /// A lint rule.
 ///
-/// Rules implement one or both of [`check_file`][Rule::check_file] and
-/// [`check_node`][Rule::check_node]. The default implementations are no-ops so
+/// Rules implement [`check_file`][Rule::check_file],
+/// [`check_file_cst`][Rule::check_file_cst], or [`check_node`][Rule::check_node].
+/// The default implementations are no-ops so
 /// each rule only needs to override what it uses.
 pub trait Rule: Send + Sync {
     /// The machine-readable code for this rule, e.g. `LintCode::L001`.

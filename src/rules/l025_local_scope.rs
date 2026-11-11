@@ -8,7 +8,7 @@
 //! Exemptions (legitimate M1 patterns that must not flag):
 //! - `static local` — persistence across executions is the point; moving the
 //!   declaration is a semantic question, not a layout one.
-//! - declarations whose initializer contains a call — moving the declaration
+//! - declarations whose initializer contains a call or value read — moving it
 //!   into a conditional block changes *when* the initializer is evaluated
 //!   (e.g. a stateful `Timer.…` read is sampled on fewer paths).
 //! - uses inside an `expand` body — the body is text-substituted per
@@ -58,10 +58,10 @@ impl Rule for LocalScopeTooWide {
             if decl.children().iter().any(|c| c.kind() == Kind::Static) {
                 continue;
             }
-            // Initializer with a call: moving it changes when it is sampled.
+            // Calls and value reads can change when sampled at a later point.
             if decl
                 .child_by_field(Field::Value)
-                .is_some_and(|v| contains_call(v))
+                .is_some_and(contains_value_read)
             {
                 continue;
             }
@@ -160,11 +160,14 @@ fn block_chain<'a>(node: &Node<'a>) -> Vec<Node<'a>> {
     chain
 }
 
-/// Whether the expression contains any call (iteratively, like `collect`).
-fn contains_call(node: Node) -> bool {
+/// A CST-only rule cannot prove that a call or named value is unchanged later.
+fn contains_value_read(node: Node) -> bool {
     let mut stack = vec![node];
     while let Some(n) = stack.pop() {
-        if n.kind() == Kind::CallExpression {
+        if matches!(
+            n.kind(),
+            Kind::CallExpression | Kind::Identifier | Kind::MemberExpression
+        ) {
             return true;
         }
         stack.extend(n.children());
@@ -197,6 +200,21 @@ mod tests {
         assert_eq!(m.len(), 1, "{m:?}");
         assert!(m[0].contains("local `sum`"), "{m:?}");
         assert!(m[0].contains("line 3"), "{m:?}");
+    }
+
+    #[test]
+    fn initializer_value_snapshots_cannot_move_past_writes() {
+        for source in [
+            "local saved = Count; Count = 2; if (Flag) { Out = saved; }",
+            "local saved = Root.Count + 1; Root.Count = 2; if (Flag) { Out = saved; }",
+            "local count = 1; local saved = count; count = 2; if (Flag) { Out = saved; }",
+        ] {
+            assert!(msgs(source).is_empty(), "{source}");
+        }
+        assert_eq!(
+            msgs("local saved = -(1 + 2); if (Flag) { Out = saved; }").len(),
+            1
+        );
     }
 
     #[test]

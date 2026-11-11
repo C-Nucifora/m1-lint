@@ -6,7 +6,7 @@
 
 use crate::diagnostic::{LintCode, LintDiagnostic};
 use crate::rules::Rule;
-use m1_core::{Kind, Node, Severity};
+use m1_core::{Field, Kind, Node, Severity};
 
 /// L006 — flags equality comparisons against float literals.
 pub struct FloatEqComparison;
@@ -19,6 +19,7 @@ pub struct FloatEqComparison;
 /// `0xFACE`), which would otherwise be misread as an exponent marker and flag a
 /// plain integer comparison as a float one.
 fn is_float_literal(node: &Node) -> bool {
+    let node = unwrap_numeric(node);
     if node.kind() != Kind::Number {
         return false;
     }
@@ -30,18 +31,25 @@ fn is_float_literal(node: &Node) -> bool {
     text.contains('.') || text.to_ascii_lowercase().contains('e')
 }
 
-/// Peels any number of `ParenthesizedExpression` wrappers and returns the
-/// innermost node.  For `(((1.5)))` this returns the `Number` node `1.5`.
-/// For any other node it is a no-op.
-fn unwrap_parens<'a>(node: &Node<'a>) -> Node<'a> {
+/// Parentheses and numeric negation preserve the operand's numeric type.
+fn unwrap_numeric<'a>(node: &Node<'a>) -> Node<'a> {
     let mut cur = *node;
-    while cur.kind() == Kind::ParenthesizedExpression {
-        // A parenthesized_expression has exactly one named child: its inner
-        // expression.  If (unexpectedly) it has none, stop peeling.
-        match cur.named_children().into_iter().next() {
-            Some(inner) => cur = inner,
-            None => break,
-        }
+    loop {
+        let inner = match cur.kind() {
+            Kind::ParenthesizedExpression => {
+                cur.named_child_nodes().find(|child| !child.is_comment())
+            }
+            Kind::UnaryExpression
+                if cur
+                    .child_by_field(Field::Operator)
+                    .is_some_and(|op| op.kind() == Kind::Minus) =>
+            {
+                cur.named_child_nodes().find(|child| !child.is_comment())
+            }
+            _ => None,
+        };
+        let Some(inner) = inner else { break };
+        cur = inner;
     }
     cur
 }
@@ -69,8 +77,9 @@ fn float_local_name(decl: &Node) -> Option<String> {
     let float_anno = kids
         .iter()
         .any(|c| c.kind() == Kind::TypeAnnotation && c.text().contains("Float"));
-    // The only `Number` directly under a LocalDeclaration is its initializer.
-    let float_init = kids.iter().any(is_float_literal);
+    let float_init = decl
+        .child_by_field(Field::Value)
+        .is_some_and(|value| is_float_literal(&value));
     (float_anno || float_init).then_some(name)
 }
 
@@ -93,7 +102,7 @@ impl Rule for FloatEqComparison {
         }
         // Check direct children AND see through any parenthesized-expression
         // wrappers so that `a eq (1.5)` is caught as well as `a eq 1.5`.
-        let has_float = children.iter().any(|c| is_float_literal(&unwrap_parens(c)));
+        let has_float = children.iter().any(is_float_literal);
         if has_float {
             diags.push(LintDiagnostic::new(
                 LintCode::L006,
@@ -141,14 +150,14 @@ impl Rule for FloatEqComparison {
                 continue;
             }
             // `check_node` already reports a comparison that has a float literal
-            // (including one wrapped in parentheses — see `unwrap_parens`).
-            if children.iter().any(|c| is_float_literal(&unwrap_parens(c))) {
+            // including parentheses and numeric negation.
+            if children.iter().any(is_float_literal) {
                 continue;
             }
             // Check named children but also peel parentheses so that `(f) eq 2`
             // is caught when `f` is a float-typed local.
             let touches_float_local = n.named_children().iter().any(|c| {
-                let inner = unwrap_parens(c);
+                let inner = unwrap_numeric(c);
                 inner.kind() == Kind::Identifier && float_locals.contains(inner.text())
             });
             if touches_float_local {
@@ -181,6 +190,35 @@ mod tests {
         let source = "x = a == 1.0;\n";
         let result = runner().run_source(source);
         assert!(result.diagnostics.iter().any(|d| d.code == LintCode::L006));
+    }
+
+    #[test]
+    fn recognizes_negative_and_parenthesized_float_operands_and_locals() {
+        for op in ["==", "!=", "eq", "neq"] {
+            for literal in ["-1.5", "(((-1.5)))", "-(/* value */ 1.5)"] {
+                for comparison in [format!("a {op} {literal}"), format!("{literal} {op} a")] {
+                    let source = format!("Out = {comparison};\n");
+                    let result = runner().run_source(&source);
+                    assert!(result.syntax_errors.is_empty(), "{source}");
+                    assert_eq!(result.diagnostics.len(), 1, "{source}");
+                }
+                let source = format!("local threshold = {literal};\nOut = -threshold {op} a;\n");
+                let result = runner().run_source(&source);
+                assert!(result.syntax_errors.is_empty(), "{source}");
+                assert_eq!(result.diagnostics.len(), 1, "{source}");
+            }
+        }
+        for source in [
+            "Out = a eq -1;",
+            "Out = a eq -(0xFE);",
+            "Out = a eq !(1.5);",
+            "local threshold = -(0xFE); Out = a eq threshold;",
+        ] {
+            assert!(
+                runner().run_source(source).diagnostics.is_empty(),
+                "{source}"
+            );
+        }
     }
 
     #[test]
