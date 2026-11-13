@@ -60,8 +60,8 @@ fn esc(s: &str, out: &mut String) {
     out.push('"');
 }
 
-/// One file's portion of the JSON document. Line/column are 0-based bytes
-/// (matching `m1_core::Position`; m1-lsp does UTF-16 conversion).
+/// Line and column are 0-based; columns count Unicode scalar values, matching
+/// `m1_core::Position`. Byte ranges refer to the decoded UTF-8 source.
 pub fn render_json(files: &[(String, RunResult)]) -> String {
     let mut errors = 0usize;
     let mut warnings = 0usize;
@@ -242,6 +242,7 @@ pub fn render_sarif(files: &[(String, RunResult)]) -> String {
         "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
         "version": "2.1.0",
         "runs": [{
+            "columnKind": "unicodeCodePoints",
             "tool": {"driver": {
                 "name": "m1-lint",
                 "version": env!("CARGO_PKG_VERSION"),

@@ -30,11 +30,11 @@ impl Rule for TrailingWhitespace {
             if trimmed_len < content.len() {
                 let start = m1_core::Position {
                     line: line_idx as u32,
-                    column: trimmed_len as u32,
+                    column: content[..trimmed_len].chars().count() as u32,
                 };
                 let end = m1_core::Position {
                     line: line_idx as u32,
-                    column: content.len() as u32,
+                    column: content.chars().count() as u32,
                 };
                 let range = Range { start, end };
                 let byte_start = byte_offset + trimmed_len;

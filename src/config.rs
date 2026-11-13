@@ -200,7 +200,8 @@ impl Config {
     /// Reads `[lint]` thresholds + `exclude`, the shared `[format].indent_style`
     /// (the indent character is one decision shared with the formatter), and
     /// `[diagnostics]` select/ignore plus `[diagnostics.severity]` per-rule
-    /// reclassification.
+    /// reclassification. Only L-prefixed diagnostic entries belong to lint;
+    /// other tools' entries are left to their consumers.
     pub fn apply_tools_config(
         &mut self,
         tc: &m1_workspace::config::M1ToolsConfig,
@@ -233,9 +234,25 @@ impl Config {
         // unified file silently ignored it. A later `.m1lint.toml` overlay still
         // wins (it is applied after this layer).
         if let Some(sev) = &tc.diagnostics.severity {
-            self.apply_severity_overrides(sev.iter().map(|(c, l)| (c.as_str(), l.as_str())))?;
+            self.apply_severity_overrides(
+                sev.iter()
+                    .filter(|(c, _)| c.starts_with('L'))
+                    .map(|(c, l)| (c.as_str(), l.as_str())),
+            )?;
         }
-        self.apply_filters(tc.diagnostics.select.clone(), tc.diagnostics.ignore.clone())
+        let lint_codes = |codes: &Option<Vec<String>>| {
+            codes.as_ref().map(|codes| {
+                codes
+                    .iter()
+                    .filter(|code| code.starts_with('L'))
+                    .cloned()
+                    .collect()
+            })
+        };
+        self.apply_filters(
+            lint_codes(&tc.diagnostics.select),
+            lint_codes(&tc.diagnostics.ignore),
+        )
     }
 
     /// Overlay a `.m1lint.toml` body (raw, only set fields) onto this config.

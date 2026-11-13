@@ -19,7 +19,7 @@ pub struct FloatEqComparison;
 /// `0xFACE`), which would otherwise be misread as an exponent marker and flag a
 /// plain integer comparison as a float one.
 fn is_float_literal(node: &Node) -> bool {
-    let node = unwrap_operand(node);
+    let node = unwrap_numeric(node);
     if node.kind() != Kind::Number {
         return false;
     }
@@ -31,23 +31,25 @@ fn is_float_literal(node: &Node) -> bool {
     text.contains('.') || text.to_ascii_lowercase().contains('e')
 }
 
-/// Peel parentheses and arithmetic negation, which preserve a numeric type.
-fn unwrap_operand<'a>(node: &Node<'a>) -> Node<'a> {
+/// Parentheses and numeric negation preserve the operand's numeric type.
+fn unwrap_numeric<'a>(node: &Node<'a>) -> Node<'a> {
     let mut cur = *node;
-    while cur.kind() == Kind::ParenthesizedExpression
-        || (cur.kind() == Kind::UnaryExpression
-            && cur
-                .child_by_field(Field::Operator)
-                .is_some_and(|op| op.kind() == Kind::Minus))
-    {
-        match cur
-            .named_children()
-            .into_iter()
-            .find(|child| !matches!(child.kind(), Kind::LineComment | Kind::BlockComment))
-        {
-            Some(inner) => cur = inner,
-            None => break,
-        }
+    loop {
+        let inner = match cur.kind() {
+            Kind::ParenthesizedExpression => {
+                cur.named_child_nodes().find(|child| !child.is_comment())
+            }
+            Kind::UnaryExpression
+                if cur
+                    .child_by_field(Field::Operator)
+                    .is_some_and(|op| op.kind() == Kind::Minus) =>
+            {
+                cur.named_child_nodes().find(|child| !child.is_comment())
+            }
+            _ => None,
+        };
+        let Some(inner) = inner else { break };
+        cur = inner;
     }
     cur
 }
@@ -75,8 +77,9 @@ fn float_local_name(decl: &Node) -> Option<String> {
     let float_anno = kids
         .iter()
         .any(|c| c.kind() == Kind::TypeAnnotation && c.text().contains("Float"));
-    // Parenthesized and negated literals also determine the initializer type.
-    let float_init = kids.iter().any(is_float_literal);
+    let float_init = decl
+        .child_by_field(Field::Value)
+        .is_some_and(|value| is_float_literal(&value));
     (float_anno || float_init).then_some(name)
 }
 
@@ -154,14 +157,14 @@ impl Rule for FloatEqComparison {
                 continue;
             }
             // `check_node` already reports a comparison that has a float literal
-            // (including one wrapped in parentheses — see `unwrap_operand`).
+            // including parentheses and numeric negation.
             if children.iter().any(is_float_literal) {
                 continue;
             }
             // Check named children but also peel parentheses so that `(f) eq 2`
             // is caught when `f` is a float-typed local.
             let touches_float_local = n.named_children().iter().any(|c| {
-                let inner = unwrap_operand(c);
+                let inner = unwrap_numeric(c);
                 if inner.kind() != Kind::Identifier {
                     return false;
                 }
@@ -201,10 +204,62 @@ mod tests {
     }
 
     #[test]
+    fn numeric_unwrapping_preserves_local_scope() {
+        for (source, count) in [
+            (
+                "if (enabled) { local threshold = -1.5; Out = -threshold eq a; }",
+                1,
+            ),
+            (
+                "if (enabled) { local threshold = -1.5; } Out = -threshold eq a;",
+                0,
+            ),
+            ("Out = -threshold eq a; local threshold = -1.5;", 0),
+            (
+                "local threshold = -1.5; if (enabled) { local threshold = 1; Out = -threshold eq a; }",
+                0,
+            ),
+        ] {
+            let result = runner().run_source(source);
+            assert!(result.syntax_errors.is_empty(), "{source}");
+            assert_eq!(result.diagnostics.len(), count, "{source}");
+        }
+    }
+
+    #[test]
     fn flags_float_eq_eq() {
         let source = "x = a == 1.0;\n";
         let result = runner().run_source(source);
         assert!(result.diagnostics.iter().any(|d| d.code == LintCode::L006));
+    }
+
+    #[test]
+    fn recognizes_negative_and_parenthesized_float_operands_and_locals() {
+        for op in ["==", "!=", "eq", "neq"] {
+            for literal in ["-1.5", "(((-1.5)))", "-(/* value */ 1.5)"] {
+                for comparison in [format!("a {op} {literal}"), format!("{literal} {op} a")] {
+                    let source = format!("Out = {comparison};\n");
+                    let result = runner().run_source(&source);
+                    assert!(result.syntax_errors.is_empty(), "{source}");
+                    assert_eq!(result.diagnostics.len(), 1, "{source}");
+                }
+                let source = format!("local threshold = {literal};\nOut = -threshold {op} a;\n");
+                let result = runner().run_source(&source);
+                assert!(result.syntax_errors.is_empty(), "{source}");
+                assert_eq!(result.diagnostics.len(), 1, "{source}");
+            }
+        }
+        for source in [
+            "Out = a eq -1;",
+            "Out = a eq -(0xFE);",
+            "Out = a eq !(1.5);",
+            "local threshold = -(0xFE); Out = a eq threshold;",
+        ] {
+            assert!(
+                runner().run_source(source).diagnostics.is_empty(),
+                "{source}"
+            );
+        }
     }
 
     #[test]

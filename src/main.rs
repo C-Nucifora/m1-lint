@@ -1,5 +1,7 @@
 //! m1-lint — command-line linter for the MoTeC M1 script language.
 
+mod discovery;
+
 use std::path::PathBuf;
 use std::process;
 
@@ -99,6 +101,9 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
+    if args.diff && args.format != Format::Human {
+        fail("--diff writes a unified diff to stdout and requires --format human");
+    }
 
     // --rules prints the rule catalogue (the single source of truth for tools
     // that enumerate rules) and exits, honouring --format json|human.
@@ -126,6 +131,7 @@ fn main() {
     let ignore = args.ignore.as_deref().map(split_codes);
 
     let mut any_error = false;
+    let mut operational_error = false;
     let mut json_files: Vec<(String, m1_lint::runner::RunResult)> = Vec::new();
 
     // Baseline handling (#111): load the suppression set up front; collect a
@@ -160,21 +166,28 @@ fn main() {
             &mut json_files,
             &mut any_error,
             &mut any_diff,
+            &mut operational_error,
         );
     }
 
-    // Directory arguments expand to every `.m1scr` beneath them via the shared
-    // hardened walk (#125). An empty expansion is reported per-path and treated
-    // like a per-file read error: flag the run, keep going, exit 1 — a mistyped
-    // path must not look like a clean tree.
+    // A partial directory walk cannot establish a clean tree or complete baseline.
     let mut files: Vec<PathBuf> = Vec::new();
     if !use_stdin {
         for f in &args.files {
             if f.is_dir() {
-                let found = m1_workspace::find_scripts(f);
+                let found = match discovery::find_scripts(f) {
+                    Ok(found) => found,
+                    Err(error) => {
+                        eprintln!("error: could not discover scripts: {error}");
+                        any_error = true;
+                        operational_error = true;
+                        continue;
+                    }
+                };
                 if found.is_empty() {
                     eprintln!("error: no .m1scr files found under {}", f.display());
                     any_error = true;
+                    operational_error = true;
                 } else {
                     files.extend(found);
                 }
@@ -323,6 +336,7 @@ fn main() {
         if let Some(e) = read_err {
             eprintln!("error: could not read {display}: {e}");
             any_error = true;
+            operational_error = true;
             continue;
         }
         files_seen += 1;
@@ -348,6 +362,7 @@ fn main() {
         }
         if let Some(w) = warning {
             eprintln!("{w}");
+            operational_error = true;
         }
     }
 
@@ -363,6 +378,9 @@ fn main() {
         eprintln!("applied fixes to {files_fixed} of {files_seen} file(s)");
     }
     if let (Some(path), Some(nb)) = (&args.write_baseline, &new_baseline) {
+        if operational_error {
+            fail("baseline not written because one or more inputs could not be processed");
+        }
         if let Err(e) = m1_workspace::atomic_write(path, nb.to_json().as_bytes()) {
             fail(&format!("could not write baseline {}: {e}", path.display()));
         }
@@ -391,6 +409,7 @@ fn run_stdin(
     json_files: &mut Vec<(String, m1_lint::runner::RunResult)>,
     any_error: &mut bool,
     any_diff: &mut bool,
+    operational_error: &mut bool,
 ) {
     if args.fix && !args.diff && args.format != Format::Human {
         fail(
@@ -450,6 +469,7 @@ fn run_stdin(
             Err(e) => {
                 eprintln!("warning: could not compute fixes for {display}: {e}");
                 *any_error = true;
+                *operational_error = true;
             }
         }
     } else if args.fix {
@@ -461,6 +481,7 @@ fn run_stdin(
                 print!("{source}");
                 eprintln!("warning: could not fix {display}: {e}");
                 *any_error = true;
+                *operational_error = true;
             }
         }
     }

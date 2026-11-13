@@ -203,11 +203,20 @@ CLI flags override both.
 
 - **Suppression in source:** `// @m1:allow(L0xx)` on a construct — the M1
   analogue of `// eslint-disable-next-line`.
+  Suppression also excludes that rule's autofixes on the construct's lines.
+  Parser-required missing semicolons are repaired independently of lint rules.
 - **Per-rule severity:** a `[severity]` table promotes or softens individual
   rules (`L001 = "error"`) without forking the rule set.
 - **Baselines:** `--write-baseline` snapshots current findings so later runs
   with `--baseline` report only new regressions — the adoption path for a
   legacy codebase.
+
+JSON ranges use zero-based lines and Unicode scalar columns. Byte ranges refer
+to decoded UTF-8 source. SARIF declares Unicode code-point columns and uses
+one-based positions. Editors must convert these columns to their own units.
+`--diff` requires human output; JSON and SARIF each occupy stdout alone.
+Baseline creation fails without replacing an existing baseline if any input
+could not be read or discovered.
 
 ## Development
 
@@ -227,3 +236,7 @@ GPL-3.0-or-later — see [LICENSE](LICENSE).
 Independent, community-built open-source tooling for the MoTeC® M1 script
 language. Not affiliated with, authorised, or endorsed by MoTeC Pty Ltd.
 "MoTeC" and "M1" are trademarks of MoTeC Pty Ltd.
+
+Directory discovery reports unreadable entries and paths deeper than 64 directories
+as errors. Descendant symlinks remain excluded. Failed discovery cannot replace a
+baseline, even when another part of the requested tree is readable.

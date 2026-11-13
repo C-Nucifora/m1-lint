@@ -55,12 +55,19 @@ impl<'a> Fixer<'a> {
         let before = m1_core::parse(source);
         let lines: Vec<&str> = source.split('\n').collect();
 
+        let allowed = crate::runner::Allowed::new(source, &before);
         let mut edits: Vec<Edit> = Vec::new();
+        let mut proposed = Vec::new();
         for rule in self.registry.rules() {
-            rule.fix_file(source, &lines, &mut edits);
+            rule.fix_file(source, &lines, &mut proposed);
+            edits.extend(
+                proposed
+                    .drain(..)
+                    .filter(|edit| !allowed.suppresses_edit(rule.code(), source, edit)),
+            );
         }
         let root = before.root();
-        collect_node_edits(self.registry, &root, source, &mut edits);
+        collect_node_edits(self.registry, &root, source, &allowed, &mut edits);
         // Syntax repair: insert any statement-terminating `;` the parser had to
         // synthesise as a zero-width MISSING node. This is always safe — it only
         // makes the grammar-required token explicit, reducing the syntax-error
@@ -207,11 +214,23 @@ fn repair_missing_semicolons(root: &Node, edits: &mut Vec<Edit>) {
 
 /// Run every rule's `fix_node` over the tree, pre-order. Iterative for the same
 /// reason as [`repair_missing_semicolons`] (#128).
-fn collect_node_edits(reg: &Registry, root: &Node, source: &str, edits: &mut Vec<Edit>) {
+fn collect_node_edits(
+    reg: &Registry,
+    root: &Node,
+    source: &str,
+    allowed: &crate::runner::Allowed,
+    edits: &mut Vec<Edit>,
+) {
     let mut stack: Vec<Node> = vec![*root];
+    let mut proposed = Vec::new();
     while let Some(node) = stack.pop() {
         for rule in reg.rules() {
-            rule.fix_node(&node, source, edits);
+            rule.fix_node(&node, source, &mut proposed);
+            edits.extend(
+                proposed
+                    .drain(..)
+                    .filter(|edit| !allowed.suppresses_edit(rule.code(), source, edit)),
+            );
         }
         stack.extend(node.children().into_iter().rev());
     }
