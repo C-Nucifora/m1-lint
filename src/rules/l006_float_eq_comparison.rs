@@ -130,14 +130,21 @@ impl Rule for FloatEqComparison {
         diags: &mut Vec<LintDiagnostic>,
     ) {
         let root = cst.root();
-        let mut float_locals = std::collections::HashSet::new();
+        let mut float_locals = std::collections::HashMap::new();
+        let mut declarations = std::collections::HashMap::<String, usize>::new();
         for n in root.descendants() {
-            if n.kind() == Kind::LocalDeclaration
-                && let Some(name) = float_local_name(&n)
-            {
-                float_locals.insert(name);
+            if n.kind() != Kind::LocalDeclaration {
+                continue;
+            }
+            if let Some(name) = n.child_by_field(Field::Name) {
+                *declarations.entry(name.text().to_string()).or_default() += 1;
+            }
+            if let Some(name) = float_local_name(&n) {
+                float_locals.insert(name, n);
             }
         }
+        // Without name resolution, redeclarations cannot be attributed safely.
+        float_locals.retain(|name, _| declarations.get(name) == Some(&1));
         if float_locals.is_empty() {
             return;
         }
@@ -158,7 +165,18 @@ impl Rule for FloatEqComparison {
             // is caught when `f` is a float-typed local.
             let touches_float_local = n.named_children().iter().any(|c| {
                 let inner = unwrap_numeric(c);
-                inner.kind() == Kind::Identifier && float_locals.contains(inner.text())
+                if inner.kind() != Kind::Identifier {
+                    return false;
+                }
+                let Some(decl) = float_locals.get(inner.text()) else {
+                    return false;
+                };
+                let Some(scope) = decl.parent() else {
+                    return false;
+                };
+                let usage = inner.byte_range();
+                // A same-spelled channel outside the local's block is unrelated.
+                decl.byte_range().end <= usage.start && usage.end <= scope.byte_range().end
             });
             if touches_float_local {
                 diags.push(LintDiagnostic::new(
@@ -183,6 +201,29 @@ mod tests {
         let mut r = Registry::empty();
         r.register(Box::new(FloatEqComparison));
         Runner::new(r)
+    }
+
+    #[test]
+    fn numeric_unwrapping_preserves_local_scope() {
+        for (source, count) in [
+            (
+                "if (enabled) { local threshold = -1.5; Out = -threshold eq a; }",
+                1,
+            ),
+            (
+                "if (enabled) { local threshold = -1.5; } Out = -threshold eq a;",
+                0,
+            ),
+            ("Out = -threshold eq a; local threshold = -1.5;", 0),
+            (
+                "local threshold = -1.5; if (enabled) { local threshold = 1; Out = -threshold eq a; }",
+                0,
+            ),
+        ] {
+            let result = runner().run_source(source);
+            assert!(result.syntax_errors.is_empty(), "{source}");
+            assert_eq!(result.diagnostics.len(), count, "{source}");
+        }
     }
 
     #[test]

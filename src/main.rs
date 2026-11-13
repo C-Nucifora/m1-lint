@@ -262,10 +262,11 @@ fn main() {
             }
             let mut out = FileOutcome {
                 error: !result.syntax_errors.is_empty()
-                    || result
-                        .diagnostics
-                        .iter()
-                        .any(|d| d.inner.severity == m1_core::Severity::Error),
+                    || (args.write_baseline.is_none()
+                        && result
+                            .diagnostics
+                            .iter()
+                            .any(|d| d.inner.severity == m1_core::Severity::Error)),
                 display,
                 ..Default::default()
             };
@@ -384,9 +385,9 @@ fn main() {
             fail(&format!("could not write baseline {}: {e}", path.display()));
         }
         eprintln!("wrote baseline {}", path.display());
-        // A baseline-writing run is an adoption step, not a gate: exit 0 so
-        // CI can snapshot without failing on the pre-existing findings.
-        process::exit(0);
+        // Existing lint findings do not fail adoption, but I/O, syntax, and
+        // fix failures still fail the run.
+        process::exit(i32::from(any_error));
     }
     if any_error || (args.diff && any_diff) {
         process::exit(1);
@@ -442,10 +443,11 @@ fn run_stdin(
         nb.record(&display, &source, &result.diagnostics);
     }
     if !result.syntax_errors.is_empty()
-        || result
-            .diagnostics
-            .iter()
-            .any(|d| d.inner.severity == m1_core::Severity::Error)
+        || (args.write_baseline.is_none()
+            && result
+                .diagnostics
+                .iter()
+                .any(|d| d.inner.severity == m1_core::Severity::Error))
     {
         *any_error = true;
     }
@@ -524,10 +526,16 @@ fn resolve_config(
     dir: &std::path::Path,
 ) -> Config {
     let mut cfg = Config::default();
-    if let Some(tc) = m1_workspace::config::M1ToolsConfig::discover(dir)
-        && let Err(e) = cfg.apply_tools_config(&tc)
-    {
-        cfg_fail(e);
+    let dir = std::path::absolute(dir)
+        .unwrap_or_else(|e| fail(&format!("could not resolve {}: {e}", dir.display())));
+    match m1_workspace::config::M1ToolsConfig::discover_result(&dir) {
+        Ok(Some(found)) => {
+            if let Err(e) = cfg.apply_tools_config(&found.config) {
+                cfg_fail(e);
+            }
+        }
+        Ok(None) => {}
+        Err(e) => fail(&e.to_string()),
     }
     match &args.config {
         Some(p) => {
@@ -538,7 +546,7 @@ fn resolve_config(
             }
         }
         None => {
-            if let Err(e) = cfg.apply_discovered_file(dir) {
+            if let Err(e) = cfg.apply_discovered_file(&dir) {
                 cfg_fail(e);
             }
         }
